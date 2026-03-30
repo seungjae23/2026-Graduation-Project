@@ -33,32 +33,33 @@ def get_angle(p1, p2, p3):
     return np.degrees(np.arccos(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)))
 
 # --- [2. 메인 루프 (OpenCV 웹캠)] ---
-def run_ksl_local():
-    cap = cv2.VideoCapture(0) # 웹캠 시작
+def run_ksl_local_with_coords():
+    cap = cv2.VideoCapture(0) 
     print("프로그램을 시작합니다. 종료하려면 'q'를 누르세요.")
 
     while cap.isOpened():
         ret, frame = cap.read()
         if not ret: break
 
-        # 이미지 좌우 반전 및 포맷 변환
         frame = cv2.flip(frame, 1)
         h, w, _ = frame.shape
         mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         
-        # 감지
         res = detector.detect(mp_image)
         label = "Unknown"
 
         if res.hand_landmarks:
             for landmarks in res.hand_landmarks:
+                # --- 좌표 출력 추가 ---
+                print("\n--- [Detected Hand Landmarks] ---")
+                for i, lm in enumerate(landmarks):
+                    print(f"Point {i:02d}: x={lm.x:.4f}, y={lm.y:.4f}, z={lm.z:.4f}")
+
                 hand_scale = get_dist(landmarks[0], landmarks[9])
                 angles = [get_angle(landmarks[i], landmarks[i-2], landmarks[i-3]) for i in [8, 12, 16, 20]]
                 ext = [a > 135 for a in angles]
-                thumb_dist = get_dist(landmarks[4], landmarks[17]) / hand_scale
                 idx_v = (landmarks[8].x - landmarks[5].x, landmarks[8].y - landmarks[5].y)
 
-                # 로직 적용
                 num_ext = sum(ext)
                 if num_ext == 1 and ext[0]:
                     thumb_v = (landmarks[4].x - landmarks[2].x, landmarks[4].y - landmarks[2].y)
@@ -71,11 +72,9 @@ def run_ksl_local():
                     label = "ㅁ" if landmarks[4].x < landmarks[5].x else "ㅇ"
                 elif all(ext): label = "ㅎ"
 
-                # 랜드마크 그리기
                 for lm in landmarks:
                     cv2.circle(frame, (int(lm.x*w), int(lm.y*h)), 5, (0, 255, 0), -1)
 
-        # 한글 텍스트 출력 (PIL)
         try:
             pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
             draw = ImageDraw.Draw(pil_img)
@@ -93,5 +92,5 @@ def run_ksl_local():
     cv2.destroyAllWindows()
 
 if __name__ == "__main__":
-    run_ksl_local()
+    run_ksl_local_with_coords()
 
