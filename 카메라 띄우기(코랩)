@@ -1,83 +1,96 @@
-# 구글 코랩 환경 파이썬 3.12(첫번째셀)
-# 미디어파이프 다운+준비+확인
-!pip install mediapipe opencv-python-headless
-import mediapipe as mp
-print(f"MediaPipe version {mp.__version__} is ready.")
-
-# 카메라 띄우기(2번째셀)
 import cv2
 import numpy as np
-from google.colab.output import eval_js
-from IPython.display import display, Javascript
-from base64 import b64decode
+import mediapipe as mp
+from mediapipe.tasks import python
+from PIL import ImageFont, ImageDraw, Image
+import os
 
-def take_photo_only():
-    # 1. JavaScript를 사용하여 브라우저에 카메라 화면과 버튼 생성
-    js = Javascript('''
-    async function takePhoto() {
-        const div = document.createElement('div');
-        const capture = document.createElement('button');
-        capture.textContent = '사진 촬영';
-        capture.style = 'display:block; margin:10px; padding:15px 25px; background:#4CAF50; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px;';
+# --- [1. 환경 설정] ---
+# 로컬 환경에 맞는 폰트 경로로 수정 필요 (예: Windows는 'malgun.ttf')
+font_path = "NanumGothicBold.ttf" 
+model_path = 'hand_landmarker.task'
+
+# 모델 파일 다운로드 로직 (파일이 없을 경우)
+if not os.path.exists(model_path):
+    import urllib.request
+    print("모델 파일을 다운로드 중입니다...")
+    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+    urllib.request.urlretrieve(url, model_path)
+
+# MediaPipe 설정
+base_options = python.BaseOptions(model_asset_path=model_path)
+options = mp.tasks.vision.HandLandmarkerOptions(base_options=base_options, num_hands=1)
+detector = mp.tasks.vision.HandLandmarker.create_from_options(options)
+
+def get_dist(p1, p2):
+    return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2)
+
+def get_angle(p1, p2, p3):
+    v1 = np.array([p1.x - p2.x, p1.y - p2.y])
+    v2 = np.array([p3.x - p2.x, p3.y - p2.y])
+    n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+    if n1 == 0 or n2 == 0: return 0
+    return np.degrees(np.arccos(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)))
+
+# --- [2. 메인 루프 (OpenCV 웹캠)] ---
+def run_ksl_local():
+    cap = cv2.VideoCapture(0) # 웹캠 시작
+    print("프로그램을 시작합니다. 종료하려면 'q'를 누르세요.")
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+
+        # 이미지 좌우 반전 및 포맷 변환
+        frame = cv2.flip(frame, 1)
+        h, w, _ = frame.shape
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
         
-        const video = document.createElement('video');
-        video.style = 'display:block; transform: scaleX(-1); width: 640px; height: 480px; border-radius: 15px;';
-        
-        // 카메라 스트림 가져오기
-        const stream = await navigator.mediaDevices.getUserMedia({video: true});
-        div.appendChild(capture); 
-        div.appendChild(video);
-        document.body.appendChild(div);
-        
-        video.srcObject = stream;
-        await video.play();
+        # 감지
+        res = detector.detect(mp_image)
+        label = "Unknown"
 
-        // iframe 높이 조절
-        google.colab.output.setIframeHeight(document.documentElement.scrollHeight, true);
+        if res.hand_landmarks:
+            for landmarks in res.hand_landmarks:
+                hand_scale = get_dist(landmarks[0], landmarks[9])
+                angles = [get_angle(landmarks[i], landmarks[i-2], landmarks[i-3]) for i in [8, 12, 16, 20]]
+                ext = [a > 135 for a in angles]
+                thumb_dist = get_dist(landmarks[4], landmarks[17]) / hand_scale
+                idx_v = (landmarks[8].x - landmarks[5].x, landmarks[8].y - landmarks[5].y)
 
-        // 버튼 클릭 대기
-        await new Promise((resolve) => capture.onclick = resolve);
+                # 로직 적용
+                num_ext = sum(ext)
+                if num_ext == 1 and ext[0]:
+                    thumb_v = (landmarks[4].x - landmarks[2].x, landmarks[4].y - landmarks[2].y)
+                    label = "ㄱ" if abs(thumb_v[0]) > abs(thumb_v[1]) else "ㄴ"
+                elif num_ext == 2 and ext[0] and ext[1]:
+                    label = "ㄷ" if abs(idx_v[0]) > abs(idx_v[1]) else "ㅅ"
+                elif num_ext == 3 and ext[0] and ext[1] and ext[2]:
+                    label = "ㄹ" if abs(idx_v[0]) > abs(idx_v[1]) else "ㅂ"
+                elif num_ext == 0:
+                    label = "ㅁ" if landmarks[4].x < landmarks[5].x else "ㅇ"
+                elif all(ext): label = "ㅎ"
 
-        // 캔버스에 현재 영상 프레임 그리기
-        const canvas = document.createElement('canvas');
-        canvas.width = video.videoWidth; 
-        canvas.height = video.videoHeight;
-        const ctx = canvas.getContext('2d');
-        
-        // 좌우 반전 처리 (거울 모드)
-        ctx.translate(canvas.width, 0); 
-        ctx.scale(-1, 1);
-        ctx.drawImage(video, 0, 0);
+                # 랜드마크 그리기
+                for lm in landmarks:
+                    cv2.circle(frame, (int(lm.x*w), int(lm.y*h)), 5, (0, 255, 0), -1)
 
-        // 스트림 종료 및 요소 삭제
-        stream.getVideoTracks()[0].stop();
-        div.remove();
+        # 한글 텍스트 출력 (PIL)
+        try:
+            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            font = ImageFont.truetype(font_path, 40)
+            draw.text((30, 30), f"인식 결과: {label}", font=font, fill=(0, 255, 0))
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        except:
+            cv2.putText(frame, f"Result: {label}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
 
-        return canvas.toDataURL('image/jpeg', 0.8);
-    }
-    ''')
-    
-    display(js)
-    
-    # 2. JavaScript로부터 이미지 데이터 받기
-    data = eval_js('takePhoto()')
-    
-    # 3. Base64 데이터를 OpenCV 이미지 형식(BGR)으로 변환
-    binary = b64decode(data.split(',')[1])
-    img_array = np.frombuffer(binary, dtype=np.uint8)
-    img_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
-    
-    return img_bgr
+        cv2.imshow('KSL Recognition', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
 
-# --- 실행 테스트 ---
-try:
-    captured_img = take_photo_only()
-    print("사진 캡처 성공!")
-    print(f"이미지 크기: {captured_img.shape}")
-    
-    # 결과 확인 (OpenCV 이미지 표시)
-    from google.colab.patches import cv2_imshow
-    cv2_imshow(captured_img)
-    
-except Exception as e:
-    print(f"카메라를 실행할 수 없습니다: {e}")
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    run_ksl_local()
