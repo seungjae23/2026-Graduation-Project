@@ -1,0 +1,84 @@
+#google colab 환경 python 3.12
+
+#mediapipe 다운+준비+확인
+!pip install mediapipe opencv-python-headless
+import mediapipe as mp
+print(f"MediaPipe version {mp.__version__} is ready.")
+
+# 카메라 띄우기
+import cv2
+import numpy as np
+from google.colab.output import eval_js
+from IPython.display import display, Javascript
+from base64 import b64decode
+
+def take_photo_only():
+    # 1. JavaScript를 사용하여 브라우저에 카메라 화면과 버튼 생성
+    js = Javascript('''
+    async function takePhoto() {
+        const div = document.createElement('div');
+        const capture = document.createElement('button');
+        capture.textContent = '사진 촬영';
+        capture.style = 'display:block; margin:10px; padding:15px 25px; background:#4CAF50; color:white; border:none; border-radius:8px; cursor:pointer; font-size:16px;';
+        
+        const video = document.createElement('video');
+        video.style = 'display:block; transform: scaleX(-1); width: 640px; height: 480px; border-radius: 15px;';
+        
+        // 카메라 스트림 가져오기
+        const stream = await navigator.mediaDevices.getUserMedia({video: true});
+        div.appendChild(capture); 
+        div.appendChild(video);
+        document.body.appendChild(div);
+        
+        video.srcObject = stream;
+        await video.play();
+
+        // iframe 높이 조절
+        google.colab.output.setIframeHeight(document.documentElement.scrollHeight, true);
+
+        // 버튼 클릭 대기
+        await new Promise((resolve) => capture.onclick = resolve);
+
+        // 캔버스에 현재 영상 프레임 그리기
+        const canvas = document.createElement('canvas');
+        canvas.width = video.videoWidth; 
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext('2d');
+        
+        // 좌우 반전 처리 (거울 모드)
+        ctx.translate(canvas.width, 0); 
+        ctx.scale(-1, 1);
+        ctx.drawImage(video, 0, 0);
+
+        // 스트림 종료 및 요소 삭제
+        stream.getVideoTracks()[0].stop();
+        div.remove();
+
+        return canvas.toDataURL('image/jpeg', 0.8);
+    }
+    ''')
+    
+    display(js)
+    
+    # 2. JavaScript로부터 이미지 데이터 받기
+    data = eval_js('takePhoto()')
+    
+    # 3. Base64 데이터를 OpenCV 이미지 형식(BGR)으로 변환
+    binary = b64decode(data.split(',')[1])
+    img_array = np.frombuffer(binary, dtype=np.uint8)
+    img_bgr = cv2.imdecode(img_array, cv2.IMREAD_COLOR)
+    
+    return img_bgr
+
+# --- 실행 테스트 ---
+try:
+    captured_img = take_photo_only()
+    print("사진 캡처 성공!")
+    print(f"이미지 크기: {captured_img.shape}")
+    
+    # 결과 확인 (OpenCV 이미지 표시)
+    from google.colab.patches import cv2_imshow
+    cv2_imshow(captured_img)
+    
+except Exception as e:
+    print(f"카메라를 실행할 수 없습니다: {e}")
