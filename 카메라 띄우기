@@ -1,11 +1,10 @@
-#google colab 환경 python 3.12
-
-#mediapipe 다운+준비+확인
+# 구글 코랩 환경 파이썬 3.12(첫번째셀)
+# 미디어파이프 다운+준비+확인
 !pip install mediapipe opencv-python-headless
 import mediapipe as mp
 print(f"MediaPipe version {mp.__version__} is ready.")
 
-# 카메라 띄우기
+# 카메라 띄우기(2번째셀)
 import cv2
 import numpy as np
 from google.colab.output import eval_js
