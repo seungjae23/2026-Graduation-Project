@@ -1,0 +1,97 @@
+import cv2
+import numpy as np
+import mediapipe as mp
+from mediapipe.tasks import python
+from PIL import ImageFont, ImageDraw, Image
+import os
+
+# --- [1. 환경 설정] ---
+# 로컬 환경에 맞는 폰트 경로로 수정 필요 (예: Windows는 'malgun.ttf')
+font_path = "NanumGothicBold.ttf" 
+model_path = 'hand_landmarker.task'
+
+# 모델 파일 다운로드 로직 (파일이 없을 경우)
+if not os.path.exists(model_path):
+    import urllib.request
+    print("모델 파일을 다운로드 중입니다...")
+    url = "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+    urllib.request.urlretrieve(url, model_path)
+
+# MediaPipe 설정
+base_options = python.BaseOptions(model_asset_path=model_path)
+options = mp.tasks.vision.HandLandmarkerOptions(base_options=base_options, num_hands=1)
+detector = mp.tasks.vision.HandLandmarker.create_from_options(options)
+
+def get_dist(p1, p2):
+    return np.sqrt((p1.x - p2.x)**2 + (p1.y - p2.y)**2)
+
+def get_angle(p1, p2, p3):
+    v1 = np.array([p1.x - p2.x, p1.y - p2.y])
+    v2 = np.array([p3.x - p2.x, p3.y - p2.y])
+    n1, n2 = np.linalg.norm(v1), np.linalg.norm(v2)
+    if n1 == 0 or n2 == 0: return 0
+    return np.degrees(np.arccos(np.clip(np.dot(v1, v2) / (n1 * n2), -1.0, 1.0)))
+
+# --- [2. 메인 루프 (OpenCV 웹캠)] ---
+def run_ksl_local():
+    cap = cv2.VideoCapture(0) # 웹캠 시작
+    print("프로그램을 시작합니다. 종료하려면 'q'를 누르세요.")
+
+    while cap.isOpened():
+        ret, frame = cap.read()
+        if not ret: break
+
+        # 이미지 좌우 반전 및 포맷 변환
+        frame = cv2.flip(frame, 1)
+        h, w, _ = frame.shape
+        mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+        
+        # 감지
+        res = detector.detect(mp_image)
+        label = "Unknown"
+
+        if res.hand_landmarks:
+            for landmarks in res.hand_landmarks:
+                hand_scale = get_dist(landmarks[0], landmarks[9])
+                angles = [get_angle(landmarks[i], landmarks[i-2], landmarks[i-3]) for i in [8, 12, 16, 20]]
+                ext = [a > 135 for a in angles]
+                thumb_dist = get_dist(landmarks[4], landmarks[17]) / hand_scale
+                idx_v = (landmarks[8].x - landmarks[5].x, landmarks[8].y - landmarks[5].y)
+
+                # 로직 적용
+                num_ext = sum(ext)
+                if num_ext == 1 and ext[0]:
+                    thumb_v = (landmarks[4].x - landmarks[2].x, landmarks[4].y - landmarks[2].y)
+                    label = "ㄱ" if abs(thumb_v[0]) > abs(thumb_v[1]) else "ㄴ"
+                elif num_ext == 2 and ext[0] and ext[1]:
+                    label = "ㄷ" if abs(idx_v[0]) > abs(idx_v[1]) else "ㅅ"
+                elif num_ext == 3 and ext[0] and ext[1] and ext[2]:
+                    label = "ㄹ" if abs(idx_v[0]) > abs(idx_v[1]) else "ㅂ"
+                elif num_ext == 0:
+                    label = "ㅁ" if landmarks[4].x < landmarks[5].x else "ㅇ"
+                elif all(ext): label = "ㅎ"
+
+                # 랜드마크 그리기
+                for lm in landmarks:
+                    cv2.circle(frame, (int(lm.x*w), int(lm.y*h)), 5, (0, 255, 0), -1)
+
+        # 한글 텍스트 출력 (PIL)
+        try:
+            pil_img = Image.fromarray(cv2.cvtColor(frame, cv2.COLOR_BGR2RGB))
+            draw = ImageDraw.Draw(pil_img)
+            font = ImageFont.truetype(font_path, 40)
+            draw.text((30, 30), f"인식 결과: {label}", font=font, fill=(0, 255, 0))
+            frame = cv2.cvtColor(np.array(pil_img), cv2.COLOR_RGB2BGR)
+        except:
+            cv2.putText(frame, f"Result: {label}", (30, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 255, 0), 2)
+
+        cv2.imshow('KSL Recognition', frame)
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            break
+
+    cap.release()
+    cv2.destroyAllWindows()
+
+if __name__ == "__main__":
+    run_ksl_local()
+
