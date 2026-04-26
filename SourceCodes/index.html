@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Live Score</title>
+</head>
+<body>
+    <h1>🎮 Live Score Board</h1>
+
+    <h2 id="score">Score: 0</h2>
+    <h3 id="target">Target: -</h3>
+    <h3 id="last">Last: -</h3>
+
+    <script>
+        const ws = new WebSocket("ws://127.0.0.1:8000/ws");
+
+        ws.onopen = () => {
+            ws.send(JSON.stringify({
+                room: "123456",
+                player: "WEB"
+            }));
+        };
+
+        ws.onmessage = (event) => {
+            const data = JSON.parse(event.data);
+
+            if (data.score !== undefined) {
+                document.getElementById("score").innerText = "Score: " + data.score;
+                document.getElementById("target").innerText = "Target: " + data.target;
+                document.getElementById("last").innerText = "Last: " + data.last;
+            }
+        };
+    </script>
+</body>
+</html>
