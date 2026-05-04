@@ -1,0 +1,44 @@
+name: sign_play
+description: "A new Flutter project."
+
+publish_to: 'none' 
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.5
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+
+  # [1. 통신 & 시그널링]
+  flutter_webrtc: ^0.11.0
+  firebase_core: ^2.24.2
+  firebase_database: ^10.3.8
+
+  # [2. 카메라 & AI]
+  camera: ^0.10.5+9
+  permission_handler: ^11.3.0
+  tflite_flutter: ^0.10.4
+  
+  # [3. 상태 관리]
+  provider: ^6.1.1
+
+  # [4. 게임 UI/UX 디테일 업그레이드]
+  wakelock_plus: ^1.2.8
+  audioplayers: ^5.2.1
+  shared_preferences: ^2.2.2
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+
+flutter:
+  uses-material-design: true
+
+  # AI 모델(.tflite)을 앱에 포함시키기 위해 경로를 열어줍니다.
+  assets:
+    - assets/models/
