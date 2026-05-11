@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "625767769303",
+    "project_id": "sign-play",
+    "storage_bucket": "sign-play.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:625767769303:android:9c61ee0b0cf29998283c92",
+        "android_client_info": {
+          "package_name": "com.example.sign_play"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDtm9UMG2axPeuK-ahtUQJHXXGxROFEgxo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
