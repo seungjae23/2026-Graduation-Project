@@ -12,6 +12,9 @@
 .swiftpm/
 migrate_working_dir/
 
+# Local Codex session notes
+CODEX_NOTE.md
+
 # IntelliJ related
 *.iml
 *.ipr

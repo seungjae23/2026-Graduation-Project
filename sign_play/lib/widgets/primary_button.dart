@@ -1,55 +1,26 @@
-import 'package:flutter/material.dart';
-import 'package:firebase_core/firebase_core.dart';
-import 'firebase_options.dart';
-import 'home_screen.dart';
+part of sign_play;
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
-
-  await Firebase.initializeApp(
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
-
-  runApp(const SignPlayApp());
-}
-
-class SignPlayApp extends StatelessWidget {
-  const SignPlayApp({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Sign Play',
-      debugShowCheckedModeBanner: false,
-      theme: ThemeData(
-        useMaterial3: true,
-        colorScheme: ColorScheme.fromSeed(seedColor: const Color(0xFF6C63FF)),
-      ),
-      home: const HomeScreen(),
-    );
-  }
-}
-
-class PrimaryButton extends StatelessWidget {
+class _PrimaryButton extends StatelessWidget {
   final String text;
   final IconData icon;
   final VoidCallback onTap;
+  final bool enabled;
 
-  const PrimaryButton({
-    super.key,
+  const _PrimaryButton({
     required this.text,
     required this.icon,
     required this.onTap,
+    this.enabled = true,
   });
 
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: const Color(0xFF6C63FF),
+      color: enabled ? const Color(0xFF6C63FF) : const Color(0xFFC9C5FF),
       borderRadius: BorderRadius.circular(20),
       child: InkWell(
         borderRadius: BorderRadius.circular(20),
-        onTap: onTap,
+        onTap: enabled ? onTap : null,
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 20),
