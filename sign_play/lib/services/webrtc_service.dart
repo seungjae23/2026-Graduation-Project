@@ -22,7 +22,7 @@ class WebRTCService {
   }
 
   /// 2️⃣ PeerConnection 생성
-  Future<void> createPeerConnection() async {
+  Future<void> initializePeerConnection() async {
     _peerConnection = await createPeerConnection(config);
 
     // ICE candidate 처리

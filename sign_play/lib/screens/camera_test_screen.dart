@@ -21,7 +21,6 @@ class _CameraTestScreenState extends State<CameraTestScreen> {
 
   Future<void> initCamera() async {
     await _renderer.initialize();
-    await _service.init();
 
     final stream = await _service.startLocalStream();
 
