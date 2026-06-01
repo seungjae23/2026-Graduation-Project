@@ -10,12 +10,66 @@ class CreateRoomScreen extends StatefulWidget {
 class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final TextEditingController roomNameController = TextEditingController();
   final TextEditingController nicknameController = TextEditingController();
+  bool isCreatingRoom = false;
 
   @override
   void dispose() {
     roomNameController.dispose();
     nicknameController.dispose();
     super.dispose();
+  }
+
+  Future<void> _createRoom() async {
+    final roomName = roomNameController.text.trim();
+    final nickname = nicknameController.text.trim();
+
+    if (roomName.isEmpty || nickname.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('방 이름과 닉네임을 모두 입력해주세요.')),
+      );
+      return;
+    }
+
+    setState(() {
+      isCreatingRoom = true;
+    });
+
+    final roomCode = generateRoomCode();
+
+    try {
+      await FirebaseFirestore.instance.collection('rooms').doc(roomCode).set({
+        'roomName': roomName,
+        'hostNickname': nickname,
+        'playerB': '',
+        'status': 'waiting',
+        'createdAt': FieldValue.serverTimestamp(),
+      });
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WaitingRoomScreen(
+            hostNickname: nickname,
+            roomCode: roomCode,
+            isHost: true,
+          ),
+        ),
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('방 생성에 실패했습니다: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isCreatingRoom = false;
+        });
+      }
+    }
   }
 
   @override
@@ -129,20 +183,10 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
               const SizedBox(height: 32),
 
               _PrimaryButton(
-                text: '방 생성하기',
+                text: isCreatingRoom ? '방 생성 중...' : '방 생성하기',
                 icon: Icons.add,
-                onTap: () {
-                  final nickname = nicknameController.text.trim();
-
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => WaitingRoomScreen(
-                        hostNickname: nickname.isEmpty ? 'Player A' : nickname,
-                      ),
-                    ),
-                  );
-                },
+                enabled: !isCreatingRoom,
+                onTap: _createRoom,
               ),
 
               const SizedBox(height: 18),
