@@ -3,8 +3,9 @@ library sign_play;
 import 'dart:async';
 import 'dart:math';
 import 'package:camera/camera.dart';
+import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
-import 'screens/webrtc_test_screen.dart';
+import 'firebase_options.dart';
 
 part 'screens/home_screen.dart';
 part 'screens/create_room_screen.dart';
@@ -26,8 +27,13 @@ part 'widgets/camera_preview_panel.dart';
 part 'utils/room_code.dart';
 part 'utils/words.dart';
 
-void main() {
+Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  await Firebase.initializeApp(
+    options: DefaultFirebaseOptions.currentPlatform,
+  );
+
   runApp(const SignPlayApp());
 }
 
