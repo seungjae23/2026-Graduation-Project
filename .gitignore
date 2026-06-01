@@ -1,0 +1,28 @@
+﻿# Flutter
+sign_play/build/
+sign_play/.dart_tool/
+sign_play/.flutter-plugins
+sign_play/.flutter-plugins-dependencies
+sign_play/.packages
+sign_play/android/.gradle/
+sign_play/android/.kotlin/
+sign_play/android/captures/
+sign_play/android/local.properties
+sign_play/ios/Flutter/ephemeral/
+sign_play/macos/Flutter/ephemeral/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
