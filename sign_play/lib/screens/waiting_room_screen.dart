@@ -61,6 +61,18 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
     });
   }
 
+  Future<void> _copyRoomCode() async {
+    await Clipboard.setData(ClipboardData(text: roomCode));
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('방 코드가 클립보드에 복사되었습니다.')),
+    );
+  }
+
   Future<void> _startGame() async {
     setState(() {
       isStartingGame = true;
@@ -215,28 +227,36 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 10,
-                              horizontal: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
+                          Material(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(18),
+                            child: InkWell(
                               borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.copy, size: 18, color: Colors.white),
-                                SizedBox(width: 8),
-                                Text(
-                                  '코드 복사',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              onTap: _copyRoomCode,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 16,
                                 ),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.copy,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      '코드 복사',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ],
