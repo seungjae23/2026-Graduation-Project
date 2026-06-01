@@ -10,6 +10,7 @@ class JoinRoomScreen extends StatefulWidget {
 class _JoinRoomScreenState extends State<JoinRoomScreen> {
   final TextEditingController roomCodeController = TextEditingController();
   final TextEditingController nicknameController = TextEditingController();
+  bool isJoiningRoom = false;
 
   @override
   void dispose() {
@@ -18,7 +19,7 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
     super.dispose();
   }
 
-  void _joinRoom() {
+  Future<void> _joinRoom() async {
     final roomCode = roomCodeController.text.trim().replaceAll(' ', '').toUpperCase();
     final nickname = nicknameController.text.trim();
 
@@ -36,17 +37,64 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
       return;
     }
 
-    Navigator.push(
-      context,
-      MaterialPageRoute(
-        builder: (context) => WaitingRoomScreen(
-          hostNickname: 'Player A',
-          roomCode: roomCode,
-          guestNickname: nickname.isEmpty ? 'Player B' : nickname,
-          isHost: false,
+    setState(() {
+      isJoiningRoom = true;
+    });
+
+    try {
+      final roomRef = FirebaseFirestore.instance.collection('rooms').doc(roomCode);
+      final roomSnapshot = await roomRef.get();
+
+      if (!mounted) return;
+
+      if (!roomSnapshot.exists) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('존재하지 않는 방입니다.')),
+        );
+        return;
+      }
+
+      final roomData = roomSnapshot.data() as Map<String, dynamic>;
+      final guestNickname = nickname.isEmpty ? 'Player B' : nickname;
+      final currentGuest = roomData['playerB'] as String? ?? '';
+
+      if (currentGuest.isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('이미 참가자가 있는 방입니다.')),
+        );
+        return;
+      }
+
+      await roomRef.update({
+        'playerB': guestNickname,
+      });
+
+      if (!mounted) return;
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (context) => WaitingRoomScreen(
+            hostNickname: roomData['hostNickname'] as String? ?? 'Player A',
+            roomCode: roomCode,
+            guestNickname: guestNickname,
+            isHost: false,
+          ),
         ),
-      ),
-    );
+      );
+    } catch (error) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('방 참가에 실패했습니다: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isJoiningRoom = false;
+        });
+      }
+    }
   }
 
   @override
@@ -188,8 +236,9 @@ class _JoinRoomScreenState extends State<JoinRoomScreen> {
                 const SizedBox(height: 34),
 
                 _PrimaryButton(
-                  text: '방 참가하기',
+                  text: isJoiningRoom ? '참가 중...' : '방 참가하기',
                   icon: Icons.login,
+                  enabled: !isJoiningRoom,
                   onTap: _joinRoom,
                 ),
 
