@@ -29,10 +29,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
     roomCode = widget.roomCode ?? generateRoomCode();
   }
 
-  void _moveToGameIfNeeded({
-    required String hostNickname,
-    required String guestNickname,
-  }) {
+  void _moveToGameIfNeeded(GameState gameState) {
     if (hasMovedToGame) {
       return;
     }
@@ -48,13 +45,18 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
         context,
         MaterialPageRoute(
           builder: (context) => TurnIntroScreen(
-            attackerName: hostNickname,
-            guesserName: guestNickname,
-            isSigner: widget.isHost,
+            attackerName: gameState.signerName,
+            guesserName: gameState.guesserName,
+            isSigner: widget.isHost
+                ? gameState.signerName == gameState.firstPlayerName
+                : gameState.signerName == gameState.secondPlayerName,
+            attackTurn: gameState.attackTurn,
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
             roomCode: roomCode,
-            roundWords: generateRoundWords(
-              seed: '$roomCode-1',
-            ),
+            roundWords: gameState.roundWords,
           ),
         ),
       );
@@ -73,16 +75,20 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
     );
   }
 
-  Future<void> _startGame() async {
+  Future<void> _startGame({
+    required String hostNickname,
+    required String guestNickname,
+  }) async {
     setState(() {
       isStartingGame = true;
     });
 
     try {
-      await FirebaseFirestore.instance.collection('rooms').doc(roomCode).update({
-        'status': 'playing',
-        'startedAt': FieldValue.serverTimestamp(),
-      });
+      await startSyncedGame(
+        roomCode: roomCode,
+        firstPlayerName: hostNickname,
+        secondPlayerName: guestNickname,
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -151,12 +157,10 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
               roomData['playerB'] as String? ?? widget.guestNickname ?? '';
           final status = roomData['status'] as String? ?? 'waiting';
           final hasGuest = guestNickname.isNotEmpty;
+          final gameState = gameStateFromRoomData(roomData);
 
-          if (status == 'playing' && hasGuest) {
-            _moveToGameIfNeeded(
-              hostNickname: hostNickname,
-              guestNickname: guestNickname,
-            );
+          if (status == roomStatusPlaying && hasGuest && gameState != null) {
+            _moveToGameIfNeeded(gameState);
           }
 
           return SafeArea(
@@ -339,7 +343,12 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                           : '방장이 게임을 시작하기를 기다리는 중',
                       icon: widget.isHost ? Icons.play_arrow : Icons.hourglass_top,
                       enabled: widget.isHost && hasGuest && !isStartingGame,
-                      onTap: _startGame,
+                      onTap: () {
+                        _startGame(
+                          hostNickname: hostNickname,
+                          guestNickname: guestNickname,
+                        );
+                      },
                     ),
                     const SizedBox(height: 18),
                   ],

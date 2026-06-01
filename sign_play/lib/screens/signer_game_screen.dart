@@ -29,19 +29,27 @@ class SignerGameScreen extends StatefulWidget {
 }
 
 class _SignerGameScreenState extends State<SignerGameScreen> {
-  static const int totalRound = 5;
-  static const int roundSeconds = 30;
   int currentRound = 1;
-  int remainingSeconds = roundSeconds;
+  int remainingSeconds = gameRoundSeconds;
   late String currentWord;
   Timer? roundTimer;
   bool isAdvancingRound = false;
+  bool hasMovedFromGame = false;
+  bool showAnswerEffect = false;
+  bool answerWasCorrect = true;
+  bool isShowingAnswerEffect = false;
+  String? shownAnswerFeedbackKey;
 
   @override
   void initState() {
     super.initState();
     currentWord = _wordForRound(currentRound);
-    _startRoundTimer();
+
+    if (widget.roomCode == null) {
+      _startLocalRoundTimer();
+    } else {
+      _startSyncedTicker();
+    }
   }
 
   @override
@@ -50,7 +58,19 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     super.dispose();
   }
 
-  void _startRoundTimer() {
+  void _startSyncedTicker() {
+    roundTimer?.cancel();
+    roundTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {});
+    });
+  }
+
+  void _startLocalRoundTimer() {
     roundTimer?.cancel();
     roundTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -62,7 +82,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
         setState(() {
           remainingSeconds = 0;
         });
-        _handleTimeExpired();
+        _handleLocalTimeExpired();
         return;
       }
 
@@ -72,15 +92,15 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     });
   }
 
-  void _handleTimeExpired() {
-    _advanceRound(message: '시간이 끝났어요. 다음 라운드로 넘어갑니다.');
+  void _handleLocalTimeExpired() {
+    _advanceLocalRound(message: '시간이 끝났어요. 다음 라운드로 넘어갑니다.');
   }
 
-  void _completeRound() {
-    _advanceRound(message: '$currentRound라운드 동작을 완료했어요.');
+  void _completeLocalRound() {
+    _advanceLocalRound(message: '$currentRound라운드 동작을 완료했어요.');
   }
 
-  void _advanceRound({required String message}) {
+  void _advanceLocalRound({required String message}) {
     if (isAdvancingRound) {
       return;
     }
@@ -88,7 +108,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     isAdvancingRound = true;
     roundTimer?.cancel();
 
-    if (currentRound >= totalRound) {
+    if (currentRound >= gameTotalRounds) {
       if (widget.attackTurn >= 2) {
         Navigator.pushReplacement(
           context,
@@ -126,15 +146,124 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     setState(() {
       currentRound += 1;
       currentWord = _wordForRound(currentRound);
-      remainingSeconds = roundSeconds;
+      remainingSeconds = gameRoundSeconds;
       isAdvancingRound = false;
     });
 
-    _startRoundTimer();
+    _startLocalRoundTimer();
 
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(content: Text('$message $currentRound라운드 제시어로 넘어갑니다.')),
     );
+  }
+
+  void _moveToRoleSwapIfNeeded(GameState gameState) {
+    if (hasMovedFromGame) {
+      return;
+    }
+
+    hasMovedFromGame = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RoleSwapScreen(
+            previousSignerName: widget.playerName,
+            previousGuesserName: widget.guesserName,
+            nextPlayerIsSigner: false,
+            attackTurn: gameState.attackTurn,
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+            roomCode: widget.roomCode,
+          ),
+        ),
+      );
+    });
+  }
+
+  void _moveToResultIfNeeded(GameState gameState) {
+    if (hasMovedFromGame) {
+      return;
+    }
+
+    hasMovedFromGame = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ResultScreen(
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+          ),
+        ),
+      );
+    });
+  }
+
+  bool _showSyncedAnswerEffectIfNeeded(GameState gameState) {
+    final feedbackKey = gameState.answerFeedbackKey;
+
+    if (feedbackKey == null) {
+      return false;
+    }
+
+    if (gameState.lastAnswerAttackTurn != widget.attackTurn) {
+      return false;
+    }
+
+    if (shownAnswerFeedbackKey == feedbackKey) {
+      return isShowingAnswerEffect;
+    }
+
+    shownAnswerFeedbackKey = feedbackKey;
+    isShowingAnswerEffect = true;
+    answerWasCorrect = gameState.lastAnswerCorrect ?? false;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        showAnswerEffect = true;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 950));
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        showAnswerEffect = false;
+      });
+
+      await Future.delayed(const Duration(milliseconds: 180));
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isShowingAnswerEffect = false;
+      });
+    });
+
+    return true;
   }
 
   String _wordForRound(int round) {
@@ -147,6 +276,66 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final roomCode = widget.roomCode;
+
+    if (roomCode != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: roomDocument(roomCode).snapshots(),
+        builder: (context, snapshot) {
+          final gameState = gameStateFromRoomData(snapshot.data?.data());
+
+          if (snapshot.hasError) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (!snapshot.hasData || gameState == null) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          final shouldWaitForFeedback = _showSyncedAnswerEffectIfNeeded(
+            gameState,
+          );
+
+          if (gameState.phase == gamePhaseRoleSwap && !shouldWaitForFeedback) {
+            _moveToRoleSwapIfNeeded(gameState);
+          }
+
+          if (gameState.phase == gamePhaseFinished && !shouldWaitForFeedback) {
+            _moveToResultIfNeeded(gameState);
+          }
+
+          final syncedRemainingSeconds =
+              gameState.phase == gamePhasePlaying
+              ? gameState.remainingSeconds(DateTime.now())
+              : gameRoundSeconds;
+
+          return _buildScaffold(
+            currentRound: gameState.currentRound,
+            remainingSeconds: syncedRemainingSeconds,
+            currentWord: gameState.currentWord,
+          );
+        },
+      );
+    }
+
+    return _buildScaffold(
+      currentRound: currentRound,
+      remainingSeconds: remainingSeconds,
+      currentWord: currentWord,
+    );
+  }
+
+  Widget _buildScaffold({
+    required int currentRound,
+    required int remainingSeconds,
+    required String currentWord,
+  }) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
       appBar: AppBar(
@@ -162,10 +351,12 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
         ),
       ),
       body: SafeArea(
-        child: SingleChildScrollView(
-          child: Padding(
-            padding: const EdgeInsets.all(24),
-            child: Column(
+        child: Stack(
+          children: [
+            SingleChildScrollView(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -173,7 +364,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
                     Expanded(
                       child: _StatusBox(
                         title: '라운드',
-                        value: '$currentRound / $totalRound',
+                        value: '$currentRound / $gameTotalRounds',
                         icon: Icons.flag,
                       ),
                     ),
@@ -351,18 +542,15 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
                 ),
 
                 const SizedBox(height: 28),
-
-                _PrimaryButton(
-                  text: '동작 완료',
-                  icon: Icons.check,
-                  enabled: !isAdvancingRound,
-                  onTap: _completeRound,
-                ),
-
-                const SizedBox(height: 18),
               ],
             ),
-          ),
+              ),
+            ),
+            _AnswerResultOverlay(
+              visible: showAnswerEffect,
+              isCorrect: answerWasCorrect,
+            ),
+          ],
         ),
       ),
     );

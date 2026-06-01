@@ -32,15 +32,15 @@ class GuesserGameScreen extends StatefulWidget {
 
 class _GuesserGameScreenState extends State<GuesserGameScreen> {
   final TextEditingController answerController = TextEditingController();
-  static const int totalRound = 5;
-  static const int roundSeconds = 30;
   int currentRound = 1;
-  int remainingSeconds = roundSeconds;
+  int remainingSeconds = gameRoundSeconds;
   late int score;
   Timer? roundTimer;
   bool showAnswerEffect = false;
   bool answerWasCorrect = true;
   bool isSubmittingAnswer = false;
+  bool hasMovedFromGame = false;
+  String? syncedRoundKey;
 
   @override
   void initState() {
@@ -48,7 +48,12 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     score = widget.guesserName == widget.firstPlayerName
         ? widget.firstPlayerScore
         : widget.secondPlayerScore;
-    _startRoundTimer();
+
+    if (widget.roomCode == null) {
+      _startLocalRoundTimer();
+    } else {
+      _startSyncedTicker();
+    }
   }
 
   @override
@@ -58,7 +63,19 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     super.dispose();
   }
 
-  void _startRoundTimer() {
+  void _startSyncedTicker() {
+    roundTimer?.cancel();
+    roundTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
+
+      setState(() {});
+    });
+  }
+
+  void _startLocalRoundTimer() {
     roundTimer?.cancel();
     roundTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) {
@@ -70,7 +87,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
         setState(() {
           remainingSeconds = 0;
         });
-        _handleTimeExpired();
+        _handleLocalTimeExpired();
         return;
       }
 
@@ -80,15 +97,23 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     });
   }
 
-  void _handleTimeExpired() {
+  void _handleLocalTimeExpired() {
     if (isSubmittingAnswer) {
       return;
     }
 
-    _finishRound(isCorrect: false);
+    _finishLocalRound(isCorrect: false);
   }
 
-  Future<void> _submitAnswer() async {
+  void _handleSyncedTimeExpired(GameState gameState) {
+    if (isSubmittingAnswer) {
+      return;
+    }
+
+    _finishSyncedRound(gameState: gameState, isCorrect: false);
+  }
+
+  Future<void> _submitLocalAnswer() async {
     if (isSubmittingAnswer) {
       return;
     }
@@ -102,10 +127,30 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
       return;
     }
 
-    await _finishRound(isCorrect: _isCorrectAnswer(answer));
+    await _finishLocalRound(isCorrect: _isCorrectAnswer(answer));
   }
 
-  Future<void> _finishRound({required bool isCorrect}) async {
+  Future<void> _submitSyncedAnswer(GameState gameState) async {
+    if (isSubmittingAnswer) {
+      return;
+    }
+
+    final answer = answerController.text.trim();
+
+    if (answer.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('정답을 입력해주세요.')),
+      );
+      return;
+    }
+
+    await _finishSyncedRound(
+      gameState: gameState,
+      isCorrect: _normalizeAnswer(answer) == _normalizeAnswer(gameState.currentWord),
+    );
+  }
+
+  Future<void> _finishLocalRound({required bool isCorrect}) async {
     if (isSubmittingAnswer) {
       return;
     }
@@ -124,7 +169,62 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
       return;
     }
 
-    _moveToNextRound(nextScore);
+    _moveToLocalNextRound(nextScore);
+  }
+
+  Future<void> _finishSyncedRound({
+    required GameState gameState,
+    required bool isCorrect,
+  }) async {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || isSubmittingAnswer) {
+      return;
+    }
+
+    final nextFirstPlayerScore =
+        isCorrect && gameState.guesserName == gameState.firstPlayerName
+        ? gameState.firstPlayerScore + 1
+        : gameState.firstPlayerScore;
+    final nextSecondPlayerScore =
+        isCorrect && gameState.guesserName == gameState.secondPlayerName
+        ? gameState.secondPlayerScore + 1
+        : gameState.secondPlayerScore;
+
+    setState(() {
+      isSubmittingAnswer = true;
+    });
+
+    await _showAnswerResultEffect(isCorrect);
+
+    if (!mounted) {
+      return;
+    }
+
+    try {
+      await completeSyncedRound(
+        roomCode: roomCode,
+        expectedAttackTurn: gameState.attackTurn,
+        expectedRound: gameState.currentRound,
+        firstPlayerScore: nextFirstPlayerScore,
+        secondPlayerScore: nextSecondPlayerScore,
+        answerWasCorrect: isCorrect,
+      );
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('정답 제출에 실패했습니다: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isSubmittingAnswer = false;
+        });
+      }
+    }
   }
 
   bool _isCorrectAnswer(String answer) {
@@ -172,16 +272,16 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     await Future.delayed(const Duration(milliseconds: 180));
   }
 
-  void _moveToNextRound(int nextScore) {
+  void _moveToLocalNextRound(int nextScore) {
     final updatedFirstPlayerScore = widget.guesserName == widget.firstPlayerName
         ? nextScore
         : widget.firstPlayerScore;
     final updatedSecondPlayerScore =
         widget.guesserName == widget.secondPlayerName
-            ? nextScore
-            : widget.secondPlayerScore;
+        ? nextScore
+        : widget.secondPlayerScore;
 
-    if (currentRound >= totalRound) {
+    if (currentRound >= gameTotalRounds) {
       setState(() {
         isSubmittingAnswer = false;
       });
@@ -224,15 +324,164 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
       score = nextScore;
       currentRound += 1;
       answerController.clear();
-      remainingSeconds = roundSeconds;
+      remainingSeconds = gameRoundSeconds;
       isSubmittingAnswer = false;
     });
 
-    _startRoundTimer();
+    _startLocalRoundTimer();
+  }
+
+  void _moveToRoleSwapIfNeeded(GameState gameState) {
+    if (hasMovedFromGame) {
+      return;
+    }
+
+    hasMovedFromGame = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => RoleSwapScreen(
+            previousSignerName: widget.signerName,
+            previousGuesserName: widget.guesserName,
+            nextPlayerIsSigner: true,
+            attackTurn: gameState.attackTurn,
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+            roomCode: widget.roomCode,
+          ),
+        ),
+      );
+    });
+  }
+
+  void _moveToResultIfNeeded(GameState gameState) {
+    if (hasMovedFromGame) {
+      return;
+    }
+
+    hasMovedFromGame = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ResultScreen(
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+          ),
+        ),
+      );
+    });
+  }
+
+  void _syncRoundInput(GameState gameState) {
+    final nextRoundKey = '${gameState.attackTurn}-${gameState.currentRound}';
+
+    if (syncedRoundKey == nextRoundKey) {
+      return;
+    }
+
+    syncedRoundKey = nextRoundKey;
+    answerController.clear();
+    isSubmittingAnswer = false;
+  }
+
+  int _scoreForGuesser(GameState gameState) {
+    if (gameState.guesserName == gameState.firstPlayerName) {
+      return gameState.firstPlayerScore;
+    }
+
+    return gameState.secondPlayerScore;
   }
 
   @override
   Widget build(BuildContext context) {
+    final roomCode = widget.roomCode;
+
+    if (roomCode != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: roomDocument(roomCode).snapshots(),
+        builder: (context, snapshot) {
+          final gameState = gameStateFromRoomData(snapshot.data?.data());
+
+          if (snapshot.hasError) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (!snapshot.hasData || gameState == null) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          _syncRoundInput(gameState);
+
+          if (gameState.phase == gamePhaseRoleSwap) {
+            _moveToRoleSwapIfNeeded(gameState);
+          }
+
+          if (gameState.phase == gamePhaseFinished) {
+            _moveToResultIfNeeded(gameState);
+          }
+
+          final syncedRemainingSeconds =
+              gameState.phase == gamePhasePlaying
+              ? gameState.remainingSeconds(DateTime.now())
+              : gameRoundSeconds;
+
+          if (syncedRemainingSeconds == 0 &&
+              gameState.phase == gamePhasePlaying) {
+            _handleSyncedTimeExpired(gameState);
+          }
+
+          return _buildScaffold(
+            currentRound: gameState.currentRound,
+            remainingSeconds: syncedRemainingSeconds,
+            score: _scoreForGuesser(gameState),
+            signerName: gameState.signerName,
+            guesserName: gameState.guesserName,
+            onSubmitAnswer: () => _submitSyncedAnswer(gameState),
+          );
+        },
+      );
+    }
+
+    return _buildScaffold(
+      currentRound: currentRound,
+      remainingSeconds: remainingSeconds,
+      score: score,
+      signerName: widget.signerName,
+      guesserName: widget.guesserName,
+      onSubmitAnswer: _submitLocalAnswer,
+    );
+  }
+
+  Widget _buildScaffold({
+    required int currentRound,
+    required int remainingSeconds,
+    required int score,
+    required String signerName,
+    required String guesserName,
+    required VoidCallback onSubmitAnswer,
+  }) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
       appBar: AppBar(
@@ -260,7 +509,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
                       Expanded(
                         child: _StatusBox(
                           title: '라운드',
-                          value: '$currentRound / $totalRound',
+                          value: '$currentRound / $gameTotalRounds',
                           icon: Icons.flag,
                         ),
                       ),
@@ -286,7 +535,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
                   const SizedBox(height: 24),
 
                   Text(
-                    '${widget.guesserName}님, 정답을 맞혀보세요',
+                    '$guesserName님, 정답을 맞혀보세요',
                     style: const TextStyle(
                       fontSize: 25,
                       fontWeight: FontWeight.bold,
@@ -297,7 +546,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
                   const SizedBox(height: 8),
 
                   Text(
-                    '${widget.signerName}님의 수어 동작을 보고 정답을 입력해주세요.',
+                    '$signerName님의 수어 동작을 보고 정답을 입력해주세요.',
                     style: const TextStyle(
                       fontSize: 15,
                       color: Color(0xFF77778A),
@@ -385,10 +634,10 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
                   const SizedBox(height: 22),
 
                   _PrimaryButton(
-                    text: '정답 제출',
+                    text: isSubmittingAnswer ? '제출 중...' : '정답 제출',
                     icon: Icons.send,
                     enabled: !isSubmittingAnswer,
-                    onTap: _submitAnswer,
+                    onTap: onSubmitAnswer,
                   ),
 
                   const SizedBox(height: 22),

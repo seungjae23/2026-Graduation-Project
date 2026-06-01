@@ -26,6 +26,7 @@ part 'widgets/turn_info_item.dart';
 part 'widgets/status_box.dart';
 part 'widgets/guide_text.dart';
 part 'widgets/camera_preview_panel.dart';
+part 'utils/game_state.dart';
 part 'utils/room_code.dart';
 part 'utils/words.dart';
 

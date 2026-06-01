@@ -1,6 +1,6 @@
 part of sign_play;
 
-class TurnIntroScreen extends StatelessWidget {
+class TurnIntroScreen extends StatefulWidget {
   final String attackerName;
   final String guesserName;
   final bool isSigner;
@@ -27,16 +27,171 @@ class TurnIntroScreen extends StatelessWidget {
   });
 
   @override
+  State<TurnIntroScreen> createState() => _TurnIntroScreenState();
+}
+
+class _TurnIntroScreenState extends State<TurnIntroScreen> {
+  bool hasMovedToGame = false;
+  bool isStartingTurn = false;
+
+  void _moveToGameIfNeeded(GameState gameState) {
+    if (hasMovedToGame) {
+      return;
+    }
+
+    hasMovedToGame = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => widget.isSigner
+              ? SignerGameScreen(
+                  playerName: gameState.signerName,
+                  guesserName: gameState.guesserName,
+                  attackTurn: gameState.attackTurn,
+                  firstPlayerName: gameState.firstPlayerName,
+                  secondPlayerName: gameState.secondPlayerName,
+                  firstPlayerScore: gameState.firstPlayerScore,
+                  secondPlayerScore: gameState.secondPlayerScore,
+                  roomCode: widget.roomCode,
+                  roundWords: gameState.roundWords,
+                )
+              : GuesserGameScreen(
+                  guesserName: gameState.guesserName,
+                  signerName: gameState.signerName,
+                  attackTurn: gameState.attackTurn,
+                  firstPlayerName: gameState.firstPlayerName,
+                  secondPlayerName: gameState.secondPlayerName,
+                  firstPlayerScore: gameState.firstPlayerScore,
+                  secondPlayerScore: gameState.secondPlayerScore,
+                  roomCode: widget.roomCode,
+                  roundWords: gameState.roundWords,
+                ),
+        ),
+      );
+    });
+  }
+
+  Future<void> _startTurn() async {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null) {
+      _moveToLocalGame();
+      return;
+    }
+
+    setState(() {
+      isStartingTurn = true;
+    });
+
+    try {
+      await startSyncedTurn(roomCode);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('턴 시작에 실패했습니다: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isStartingTurn = false;
+        });
+      }
+    }
+  }
+
+  void _moveToLocalGame() {
+    final gameFirstPlayerName = widget.firstPlayerName ?? widget.attackerName;
+    final gameSecondPlayerName = widget.secondPlayerName ?? widget.guesserName;
+    final roundSeedBase =
+        widget.roomCode ?? '$gameFirstPlayerName-$gameSecondPlayerName';
+    final gameRoundWords =
+        widget.roundWords ??
+        generateRoundWords(seed: '$roundSeedBase-${widget.attackTurn}');
+
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => widget.isSigner
+            ? SignerGameScreen(
+                playerName: widget.attackerName,
+                guesserName: widget.guesserName,
+                attackTurn: widget.attackTurn,
+                firstPlayerName: gameFirstPlayerName,
+                secondPlayerName: gameSecondPlayerName,
+                firstPlayerScore: widget.firstPlayerScore,
+                secondPlayerScore: widget.secondPlayerScore,
+                roomCode: widget.roomCode,
+                roundWords: gameRoundWords,
+              )
+            : GuesserGameScreen(
+                guesserName: widget.guesserName,
+                signerName: widget.attackerName,
+                attackTurn: widget.attackTurn,
+                firstPlayerName: gameFirstPlayerName,
+                secondPlayerName: gameSecondPlayerName,
+                firstPlayerScore: widget.firstPlayerScore,
+                secondPlayerScore: widget.secondPlayerScore,
+                roomCode: widget.roomCode,
+                roundWords: gameRoundWords,
+              ),
+      ),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final currentPlayerName = isSigner ? attackerName : guesserName;
-    final currentRole = isSigner ? '표현자' : '정답자';
-    final gameFirstPlayerName = firstPlayerName ?? attackerName;
-    final gameSecondPlayerName = secondPlayerName ?? guesserName;
-    final roundSeedBase = roomCode ?? '$gameFirstPlayerName-$gameSecondPlayerName';
-    final gameRoundWords = roundWords ??
-        generateRoundWords(
-          seed: '$roundSeedBase-$attackTurn',
-        );
+    final roomCode = widget.roomCode;
+
+    if (roomCode != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: roomDocument(roomCode).snapshots(),
+        builder: (context, snapshot) {
+          final gameState = gameStateFromRoomData(snapshot.data?.data());
+
+          if (snapshot.hasError) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (!snapshot.hasData || gameState == null) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (gameState.phase == gamePhasePlaying) {
+            _moveToGameIfNeeded(gameState);
+          }
+
+          return _buildContent(gameState: gameState);
+        },
+      );
+    }
+
+    return _buildContent();
+  }
+
+  Widget _buildContent({GameState? gameState}) {
+    final attackerName = gameState?.signerName ?? widget.attackerName;
+    final guesserName = gameState?.guesserName ?? widget.guesserName;
+    final attackTurn = gameState?.attackTurn ?? widget.attackTurn;
+    final currentPlayerName = widget.isSigner ? attackerName : guesserName;
+    final currentRole = widget.isSigner ? '표현자' : '정답자';
+    final canStartTurn =
+        (gameState == null || gameState.phase == gamePhaseTurnIntro) &&
+        !isStartingTurn;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
@@ -101,7 +256,7 @@ class TurnIntroScreen extends StatelessWidget {
 
               Center(
                 child: Text(
-                  isSigner
+                  widget.isSigner
                       ? '이번 턴에서는 $attackerName님이 수어를 표현합니다.\n제시어를 확인하고 동작을 시작해주세요.'
                       : '이번 턴에서는 $attackerName님의 수어를 보고\n$guesserName님이 정답을 맞힙니다.',
                   textAlign: TextAlign.center,
@@ -129,26 +284,26 @@ class TurnIntroScreen extends StatelessWidget {
                       title: '표현자',
                       value: attackerName,
                     ),
-                    SizedBox(height: 18),
+                    const SizedBox(height: 18),
                     _TurnInfoItem(
                       icon: Icons.edit,
                       title: '정답자',
                       value: guesserName,
                     ),
-                    SizedBox(height: 18),
+                    const SizedBox(height: 18),
                     _TurnInfoItem(
-                      icon: isSigner ? Icons.sign_language : Icons.edit,
+                      icon: widget.isSigner ? Icons.sign_language : Icons.edit,
                       title: '내 역할',
                       value: currentRole,
                     ),
-                    SizedBox(height: 18),
+                    const SizedBox(height: 18),
                     _TurnInfoItem(
                       icon: Icons.swap_horiz,
                       title: '공격 순서',
                       value: '$attackTurn / 2',
                     ),
-                    SizedBox(height: 18),
-                    _TurnInfoItem(
+                    const SizedBox(height: 18),
+                    const _TurnInfoItem(
                       icon: Icons.flag,
                       title: '진행 라운드',
                       value: '총 5라운드',
@@ -159,51 +314,19 @@ class TurnIntroScreen extends StatelessWidget {
 
               const SizedBox(height: 32),
 
-              if (isSigner)
+              if (widget.isSigner)
                 _PrimaryButton(
-                  text: '표현자 화면 시작',
+                  text: isStartingTurn ? '턴 시작 중...' : '표현자 화면 시작',
                   icon: Icons.sign_language,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => SignerGameScreen(
-                          playerName: attackerName,
-                          guesserName: guesserName,
-                          attackTurn: attackTurn,
-                          firstPlayerName: gameFirstPlayerName,
-                          secondPlayerName: gameSecondPlayerName,
-                          firstPlayerScore: firstPlayerScore,
-                          secondPlayerScore: secondPlayerScore,
-                          roomCode: roomCode,
-                          roundWords: gameRoundWords,
-                        ),
-                      ),
-                    );
-                  },
+                  enabled: canStartTurn,
+                  onTap: _startTurn,
                 )
               else
                 _PrimaryButton(
-                  text: '정답자 화면 시작',
+                  text: isStartingTurn ? '턴 시작 중...' : '정답자 화면 시작',
                   icon: Icons.edit,
-                  onTap: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => GuesserGameScreen(
-                          guesserName: guesserName,
-                          signerName: attackerName,
-                          attackTurn: attackTurn,
-                          firstPlayerName: gameFirstPlayerName,
-                          secondPlayerName: gameSecondPlayerName,
-                          firstPlayerScore: firstPlayerScore,
-                          secondPlayerScore: secondPlayerScore,
-                          roomCode: roomCode,
-                          roundWords: gameRoundWords,
-                        ),
-                      ),
-                    );
-                  },
+                  enabled: canStartTurn,
+                  onTap: _startTurn,
                 ),
 
               const SizedBox(height: 18),
