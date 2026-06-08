@@ -1,6 +1,6 @@
 part of sign_play;
 
-class RoleSwapScreen extends StatelessWidget {
+class RoleSwapScreen extends StatefulWidget {
   final String previousSignerName;
   final String previousGuesserName;
   final bool nextPlayerIsSigner;
@@ -9,6 +9,7 @@ class RoleSwapScreen extends StatelessWidget {
   final String secondPlayerName;
   final int firstPlayerScore;
   final int secondPlayerScore;
+  final int totalRounds;
   final String? roomCode;
 
   const RoleSwapScreen({
@@ -21,18 +22,244 @@ class RoleSwapScreen extends StatelessWidget {
     required this.secondPlayerName,
     required this.firstPlayerScore,
     required this.secondPlayerScore,
+    this.totalRounds = gameDefaultTotalRounds,
     this.roomCode,
   });
 
   @override
-  Widget build(BuildContext context) {
-    final nextSignerName = previousGuesserName;
-    final nextGuesserName = previousSignerName;
-    final nextRole = nextPlayerIsSigner ? '표현자' : '정답자';
-    final roundSeedBase = roomCode ?? '$firstPlayerName-$secondPlayerName';
-    final nextRoundWords = generateRoundWords(
-      seed: '$roundSeedBase-$attackTurn',
+  State<RoleSwapScreen> createState() => _RoleSwapScreenState();
+}
+
+class _RoleSwapScreenState extends State<RoleSwapScreen> {
+  bool hasMovedToTurnIntro = false;
+  bool isOpeningNextTurn = false;
+
+  @override
+  void dispose() {
+    _abortSyncedGameIfNeeded();
+    super.dispose();
+  }
+
+  void _abortSyncedGameIfNeeded() {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || hasMovedToTurnIntro) {
+      return;
+    }
+
+    abortSyncedGame(
+      roomCode: roomCode,
+      leftPlayerName: _currentPlayerName(),
+    ).catchError((_) {});
+  }
+
+  String _currentPlayerName() {
+    return widget.nextPlayerIsSigner
+        ? widget.previousGuesserName
+        : widget.previousSignerName;
+  }
+
+  bool _moveToHomeIfOpponentExited(Map<String, dynamic>? roomData) {
+    if (roomData?['status'] != roomStatusAborted) {
+      return false;
+    }
+
+    if (hasMovedToTurnIntro) {
+      return true;
+    }
+
+    if (!wasRoomAbortedByOpponent(roomData, _currentPlayerName())) {
+      return false;
+    }
+
+    hasMovedToTurnIntro = true;
+    moveToHomeAfterOpponentExit(
+      context,
+      message: opponentExitMessage(roomData),
     );
+    return true;
+  }
+
+  void _moveToTurnIntroIfNeeded(GameState gameState) {
+    if (hasMovedToTurnIntro) {
+      return;
+    }
+
+    hasMovedToTurnIntro = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => TurnIntroScreen(
+            attackerName: gameState.signerName,
+            guesserName: gameState.guesserName,
+            isSigner: widget.nextPlayerIsSigner,
+            attackTurn: gameState.attackTurn,
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+            roomCode: widget.roomCode,
+            totalRounds: gameState.totalRounds,
+            roundWords: gameState.roundWords,
+          ),
+        ),
+      );
+    });
+  }
+
+  Future<void> _openNextTurn() async {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null) {
+      _moveToLocalTurnIntro();
+      return;
+    }
+
+    setState(() {
+      isOpeningNextTurn = true;
+    });
+
+    try {
+      await openSyncedTurnIntro(roomCode);
+    } catch (error) {
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('다음 턴 준비에 실패했습니다: $error')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() {
+          isOpeningNextTurn = false;
+        });
+      }
+    }
+  }
+
+  void _moveToLocalTurnIntro() {
+    final nextSignerName = widget.previousGuesserName;
+    final nextGuesserName = widget.previousSignerName;
+    final roundSeedBase =
+        widget.roomCode ?? '${widget.firstPlayerName}-${widget.secondPlayerName}';
+    final nextRoundWords = generateRoundWords(
+      count: widget.totalRounds,
+      seed: '$roundSeedBase-${widget.attackTurn}',
+    );
+
+    Navigator.pushReplacement(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TurnIntroScreen(
+          attackerName: nextSignerName,
+          guesserName: nextGuesserName,
+          isSigner: widget.nextPlayerIsSigner,
+          attackTurn: widget.attackTurn,
+          firstPlayerName: widget.firstPlayerName,
+          secondPlayerName: widget.secondPlayerName,
+          firstPlayerScore: widget.firstPlayerScore,
+          secondPlayerScore: widget.secondPlayerScore,
+          roomCode: widget.roomCode,
+          totalRounds: widget.totalRounds,
+          roundWords: nextRoundWords,
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final roomCode = widget.roomCode;
+
+    if (roomCode != null) {
+      return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+        stream: roomDocument(roomCode).snapshots(),
+        builder: (context, snapshot) {
+          final roomData = snapshot.data?.data();
+          final gameState = gameStateFromRoomData(roomData);
+
+          if (snapshot.hasError) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (_moveToHomeIfOpponentExited(roomData)) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (!snapshot.hasData || gameState == null) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
+            );
+          }
+
+          if (gameState.phase == gamePhaseTurnIntro) {
+            _moveToTurnIntroIfNeeded(gameState);
+          }
+
+          if (gameState.phase == gamePhaseFinished) {
+            _moveToResultIfNeeded(gameState);
+          }
+
+          return _buildContent(gameState: gameState);
+        },
+      );
+    }
+
+    return _buildContent();
+  }
+
+  void _moveToResultIfNeeded(GameState gameState) {
+    if (hasMovedToTurnIntro) {
+      return;
+    }
+
+    hasMovedToTurnIntro = true;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      Navigator.pushReplacement(
+        context,
+        MaterialPageRoute(
+          builder: (context) => ResultScreen(
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
+          ),
+        ),
+      );
+    });
+  }
+
+  Widget _buildContent({GameState? gameState}) {
+    final nextSignerName = gameState?.signerName ?? widget.previousGuesserName;
+    final nextGuesserName = gameState?.guesserName ?? widget.previousSignerName;
+    final nextRole = widget.nextPlayerIsSigner ? '표현자' : '정답자';
+    final firstPlayerName = gameState?.firstPlayerName ?? widget.firstPlayerName;
+    final secondPlayerName =
+        gameState?.secondPlayerName ?? widget.secondPlayerName;
+    final firstPlayerScore =
+        gameState?.firstPlayerScore ?? widget.firstPlayerScore;
+    final secondPlayerScore =
+        gameState?.secondPlayerScore ?? widget.secondPlayerScore;
+    final totalRounds = gameState?.totalRounds ?? widget.totalRounds;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
@@ -97,7 +324,7 @@ class RoleSwapScreen extends StatelessWidget {
 
               Center(
                 child: Text(
-                  '$previousSignerName님의 5라운드가 끝났어요.\n이제 $nextSignerName님이 수어를 표현합니다.',
+                  '첫 번째 $totalRounds라운드가 끝났어요.\n이제 $nextSignerName님이 수어를 표현합니다.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 15,
@@ -131,7 +358,9 @@ class RoleSwapScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 18),
                     _TurnInfoItem(
-                      icon: nextPlayerIsSigner ? Icons.sign_language : Icons.edit,
+                      icon: widget.nextPlayerIsSigner
+                          ? Icons.sign_language
+                          : Icons.edit,
                       title: '내 다음 역할',
                       value: nextRole,
                     ),
@@ -154,27 +383,14 @@ class RoleSwapScreen extends StatelessWidget {
               const SizedBox(height: 32),
 
               _PrimaryButton(
-                text: nextPlayerIsSigner ? '표현자 턴 시작' : '정답자 턴 시작',
-                icon: nextPlayerIsSigner ? Icons.sign_language : Icons.edit,
-                onTap: () {
-                  Navigator.pushReplacement(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => TurnIntroScreen(
-                        attackerName: nextSignerName,
-                        guesserName: nextGuesserName,
-                        isSigner: nextPlayerIsSigner,
-                        attackTurn: attackTurn,
-                        firstPlayerName: firstPlayerName,
-                        secondPlayerName: secondPlayerName,
-                        firstPlayerScore: firstPlayerScore,
-                        secondPlayerScore: secondPlayerScore,
-                        roomCode: roomCode,
-                        roundWords: nextRoundWords,
-                      ),
-                    ),
-                  );
-                },
+                text: isOpeningNextTurn
+                    ? '다음 턴 준비 중...'
+                    : widget.nextPlayerIsSigner
+                    ? '표현자 턴 시작'
+                    : '정답자 턴 시작',
+                icon: widget.nextPlayerIsSigner ? Icons.sign_language : Icons.edit,
+                enabled: !isOpeningNextTurn,
+                onTap: _openNextTurn,
               ),
 
               const SizedBox(height: 18),

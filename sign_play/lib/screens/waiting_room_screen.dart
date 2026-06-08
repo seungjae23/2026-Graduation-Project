@@ -22,6 +22,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
   late final String roomCode;
   bool hasMovedToGame = false;
   bool isStartingGame = false;
+  bool hasReleasedGuestSlot = false;
 
   @override
   void initState() {
@@ -29,10 +30,47 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
     roomCode = widget.roomCode ?? generateRoomCode();
   }
 
-  void _moveToGameIfNeeded({
-    required String hostNickname,
-    required String guestNickname,
-  }) {
+  @override
+  void dispose() {
+    _releaseGuestSlotIfNeeded();
+    super.dispose();
+  }
+
+  void _releaseGuestSlotIfNeeded() {
+    final guestNickname = widget.guestNickname;
+
+    if (widget.isHost ||
+        hasMovedToGame ||
+        hasReleasedGuestSlot ||
+        guestNickname == null ||
+        guestNickname.isEmpty) {
+      return;
+    }
+
+    hasReleasedGuestSlot = true;
+
+    roomDocument(roomCode).get().then((snapshot) async {
+      final roomData = snapshot.data();
+
+      if (!snapshot.exists || roomData == null) {
+        return;
+      }
+
+      final status = roomData['status'] as String? ?? roomStatusWaiting;
+      final currentGuest = roomData['playerB'] as String? ?? '';
+
+      if (status != roomStatusWaiting || currentGuest != guestNickname) {
+        return;
+      }
+
+      await snapshot.reference.update({
+        'playerB': '',
+        'guestLeftAt': FieldValue.serverTimestamp(),
+      });
+    }).catchError((_) {});
+  }
+
+  void _moveToGameIfNeeded(GameState gameState) {
     if (hasMovedToGame) {
       return;
     }
@@ -48,29 +86,73 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
         context,
         MaterialPageRoute(
           builder: (context) => TurnIntroScreen(
-            attackerName: hostNickname,
-            guesserName: guestNickname,
-            isSigner: widget.isHost,
+            attackerName: gameState.signerName,
+            guesserName: gameState.guesserName,
+            isSigner: widget.isHost
+                ? gameState.signerName == gameState.firstPlayerName
+                : gameState.signerName == gameState.secondPlayerName,
+            attackTurn: gameState.attackTurn,
+            firstPlayerName: gameState.firstPlayerName,
+            secondPlayerName: gameState.secondPlayerName,
+            firstPlayerScore: gameState.firstPlayerScore,
+            secondPlayerScore: gameState.secondPlayerScore,
             roomCode: roomCode,
-            roundWords: generateRoundWords(
-              seed: '$roomCode-1',
-            ),
+            totalRounds: gameState.totalRounds,
+            roundWords: gameState.roundWords,
           ),
         ),
       );
     });
   }
 
-  Future<void> _startGame() async {
+  Future<void> _copyRoomCode() async {
+    await Clipboard.setData(ClipboardData(text: roomCode));
+
+    if (!mounted) {
+      return;
+    }
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('방 코드가 클립보드에 복사되었습니다.')),
+    );
+  }
+
+  Future<void> _startGame({
+    required String hostNickname,
+    required String guestNickname,
+    required int totalRounds,
+  }) async {
     setState(() {
       isStartingGame = true;
     });
 
     try {
-      await FirebaseFirestore.instance.collection('rooms').doc(roomCode).update({
-        'status': 'playing',
-        'startedAt': FieldValue.serverTimestamp(),
-      });
+      final latestRoomSnapshot = await roomDocument(roomCode).get();
+      final latestRoomData = latestRoomSnapshot.data();
+      final latestStatus =
+          latestRoomData?['status'] as String? ?? roomStatusWaiting;
+      final latestGuest = latestRoomData?['playerB'] as String? ?? '';
+
+      if (!latestRoomSnapshot.exists ||
+          latestStatus != roomStatusWaiting ||
+          latestGuest.isEmpty ||
+          latestGuest != guestNickname) {
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('참가자가 대기방을 나갔습니다.')),
+        );
+        return;
+      }
+
+      await startSyncedGame(
+        roomCode: roomCode,
+        firstPlayerName: hostNickname,
+        secondPlayerName: latestGuest,
+        totalRounds: totalRounds,
+      );
     } catch (error) {
       if (!mounted) {
         return;
@@ -139,12 +221,12 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
               roomData['playerB'] as String? ?? widget.guestNickname ?? '';
           final status = roomData['status'] as String? ?? 'waiting';
           final hasGuest = guestNickname.isNotEmpty;
+          final gameState = gameStateFromRoomData(roomData);
+          final totalRounds =
+              gameState?.totalRounds ?? roundCountFromRoomData(roomData);
 
-          if (status == 'playing' && hasGuest) {
-            _moveToGameIfNeeded(
-              hostNickname: hostNickname,
-              guestNickname: guestNickname,
-            );
+          if (status == roomStatusPlaying && hasGuest && gameState != null) {
+            _moveToGameIfNeeded(gameState);
           }
 
           return SafeArea(
@@ -215,28 +297,36 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                             ),
                           ),
                           const SizedBox(height: 16),
-                          Container(
-                            padding: const EdgeInsets.symmetric(
-                              vertical: 10,
-                              horizontal: 16,
-                            ),
-                            decoration: BoxDecoration(
-                              color: Colors.white.withOpacity(0.18),
+                          Material(
+                            color: Colors.white.withOpacity(0.18),
+                            borderRadius: BorderRadius.circular(18),
+                            child: InkWell(
                               borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: const Row(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Icon(Icons.copy, size: 18, color: Colors.white),
-                                SizedBox(width: 8),
-                                Text(
-                                  '코드 복사',
-                                  style: TextStyle(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.bold,
-                                  ),
+                              onTap: _copyRoomCode,
+                              child: const Padding(
+                                padding: EdgeInsets.symmetric(
+                                  vertical: 10,
+                                  horizontal: 16,
                                 ),
-                              ],
+                                child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(
+                                      Icons.copy,
+                                      size: 18,
+                                      color: Colors.white,
+                                    ),
+                                    SizedBox(width: 8),
+                                    Text(
+                                      '코드 복사',
+                                      style: TextStyle(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
                             ),
                           ),
                         ],
@@ -283,10 +373,10 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: const Column(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             '이번 게임 규칙',
                             style: TextStyle(
                               fontSize: 17,
@@ -294,10 +384,10 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                               color: Color(0xFF2E2E3A),
                             ),
                           ),
-                          SizedBox(height: 12),
+                          const SizedBox(height: 12),
                           Text(
-                            'A가 먼저 5라운드 동안 수어를 표현하고,\nB가 정답을 맞혀 점수를 얻습니다.\n이후 B가 5라운드 동안 표현자로 바뀝니다.',
-                            style: TextStyle(
+                            'A가 먼저 $totalRounds라운드 동안 수어를 표현하고,\nB가 정답을 맞혀 점수를 얻습니다.\n이후 B가 $totalRounds라운드 동안 표현자로 바뀝니다.',
+                            style: const TextStyle(
                               fontSize: 14,
                               height: 1.5,
                               color: Color(0xFF77778A),
@@ -319,7 +409,13 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                           : '방장이 게임을 시작하기를 기다리는 중',
                       icon: widget.isHost ? Icons.play_arrow : Icons.hourglass_top,
                       enabled: widget.isHost && hasGuest && !isStartingGame,
-                      onTap: _startGame,
+                      onTap: () {
+                        _startGame(
+                          hostNickname: hostNickname,
+                          guestNickname: guestNickname,
+                          totalRounds: totalRounds,
+                        );
+                      },
                     ),
                     const SizedBox(height: 18),
                   ],
