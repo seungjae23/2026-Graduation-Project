@@ -10,6 +10,7 @@ class GuesserGameScreen extends StatefulWidget {
   final int secondPlayerScore;
   final String? correctAnswer;
   final String? roomCode;
+  final int totalRounds;
   final List<String> roundWords;
 
   const GuesserGameScreen({
@@ -23,6 +24,7 @@ class GuesserGameScreen extends StatefulWidget {
     required this.secondPlayerScore,
     this.correctAnswer,
     this.roomCode,
+    this.totalRounds = gameDefaultTotalRounds,
     required this.roundWords,
   });
 
@@ -60,7 +62,42 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
   void dispose() {
     roundTimer?.cancel();
     answerController.dispose();
+    _abortSyncedGameIfNeeded();
     super.dispose();
+  }
+
+  void _abortSyncedGameIfNeeded() {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || hasMovedFromGame) {
+      return;
+    }
+
+    abortSyncedGame(
+      roomCode: roomCode,
+      leftPlayerName: widget.guesserName,
+    ).catchError((_) {});
+  }
+
+  bool _moveToHomeIfOpponentExited(Map<String, dynamic>? roomData) {
+    if (roomData?['status'] != roomStatusAborted) {
+      return false;
+    }
+
+    if (hasMovedFromGame) {
+      return true;
+    }
+
+    if (!wasRoomAbortedByOpponent(roomData, widget.guesserName)) {
+      return false;
+    }
+
+    hasMovedFromGame = true;
+    moveToHomeAfterOpponentExit(
+      context,
+      message: opponentExitMessage(roomData),
+    );
+    return true;
   }
 
   void _startSyncedTicker() {
@@ -281,7 +318,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
         ? nextScore
         : widget.secondPlayerScore;
 
-    if (currentRound >= gameTotalRounds) {
+    if (currentRound >= widget.totalRounds) {
       setState(() {
         isSubmittingAnswer = false;
       });
@@ -314,6 +351,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
             firstPlayerScore: updatedFirstPlayerScore,
             secondPlayerScore: updatedSecondPlayerScore,
             roomCode: widget.roomCode,
+            totalRounds: widget.totalRounds,
           ),
         ),
       );
@@ -356,6 +394,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
             firstPlayerScore: gameState.firstPlayerScore,
             secondPlayerScore: gameState.secondPlayerScore,
             roomCode: widget.roomCode,
+            totalRounds: gameState.totalRounds,
           ),
         ),
       );
@@ -416,12 +455,20 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: roomDocument(roomCode).snapshots(),
         builder: (context, snapshot) {
-          final gameState = gameStateFromRoomData(snapshot.data?.data());
+          final roomData = snapshot.data?.data();
+          final gameState = gameStateFromRoomData(roomData);
 
           if (snapshot.hasError) {
             return const Scaffold(
               backgroundColor: Color(0xFFF7F6FF),
               body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (_moveToHomeIfOpponentExited(roomData)) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
             );
           }
 
@@ -458,6 +505,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
             score: _scoreForGuesser(gameState),
             signerName: gameState.signerName,
             guesserName: gameState.guesserName,
+            totalRounds: gameState.totalRounds,
             onSubmitAnswer: () => _submitSyncedAnswer(gameState),
           );
         },
@@ -470,6 +518,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
       score: score,
       signerName: widget.signerName,
       guesserName: widget.guesserName,
+      totalRounds: widget.totalRounds,
       onSubmitAnswer: _submitLocalAnswer,
     );
   }
@@ -480,6 +529,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     required int score,
     required String signerName,
     required String guesserName,
+    required int totalRounds,
     required VoidCallback onSubmitAnswer,
   }) {
     return Scaffold(
@@ -509,7 +559,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
                       Expanded(
                         child: _StatusBox(
                           title: '라운드',
-                          value: '$currentRound / $gameTotalRounds',
+                          value: '$currentRound / $totalRounds',
                           icon: Icons.flag,
                         ),
                       ),

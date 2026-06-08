@@ -22,11 +22,52 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
   late final String roomCode;
   bool hasMovedToGame = false;
   bool isStartingGame = false;
+  bool hasReleasedGuestSlot = false;
 
   @override
   void initState() {
     super.initState();
     roomCode = widget.roomCode ?? generateRoomCode();
+  }
+
+  @override
+  void dispose() {
+    _releaseGuestSlotIfNeeded();
+    super.dispose();
+  }
+
+  void _releaseGuestSlotIfNeeded() {
+    final guestNickname = widget.guestNickname;
+
+    if (widget.isHost ||
+        hasMovedToGame ||
+        hasReleasedGuestSlot ||
+        guestNickname == null ||
+        guestNickname.isEmpty) {
+      return;
+    }
+
+    hasReleasedGuestSlot = true;
+
+    roomDocument(roomCode).get().then((snapshot) async {
+      final roomData = snapshot.data();
+
+      if (!snapshot.exists || roomData == null) {
+        return;
+      }
+
+      final status = roomData['status'] as String? ?? roomStatusWaiting;
+      final currentGuest = roomData['playerB'] as String? ?? '';
+
+      if (status != roomStatusWaiting || currentGuest != guestNickname) {
+        return;
+      }
+
+      await snapshot.reference.update({
+        'playerB': '',
+        'guestLeftAt': FieldValue.serverTimestamp(),
+      });
+    }).catchError((_) {});
   }
 
   void _moveToGameIfNeeded(GameState gameState) {
@@ -56,6 +97,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
             firstPlayerScore: gameState.firstPlayerScore,
             secondPlayerScore: gameState.secondPlayerScore,
             roomCode: roomCode,
+            totalRounds: gameState.totalRounds,
             roundWords: gameState.roundWords,
           ),
         ),
@@ -78,16 +120,38 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
   Future<void> _startGame({
     required String hostNickname,
     required String guestNickname,
+    required int totalRounds,
   }) async {
     setState(() {
       isStartingGame = true;
     });
 
     try {
+      final latestRoomSnapshot = await roomDocument(roomCode).get();
+      final latestRoomData = latestRoomSnapshot.data();
+      final latestStatus =
+          latestRoomData?['status'] as String? ?? roomStatusWaiting;
+      final latestGuest = latestRoomData?['playerB'] as String? ?? '';
+
+      if (!latestRoomSnapshot.exists ||
+          latestStatus != roomStatusWaiting ||
+          latestGuest.isEmpty ||
+          latestGuest != guestNickname) {
+        if (!mounted) {
+          return;
+        }
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('참가자가 대기방을 나갔습니다.')),
+        );
+        return;
+      }
+
       await startSyncedGame(
         roomCode: roomCode,
         firstPlayerName: hostNickname,
-        secondPlayerName: guestNickname,
+        secondPlayerName: latestGuest,
+        totalRounds: totalRounds,
       );
     } catch (error) {
       if (!mounted) {
@@ -158,6 +222,8 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
           final status = roomData['status'] as String? ?? 'waiting';
           final hasGuest = guestNickname.isNotEmpty;
           final gameState = gameStateFromRoomData(roomData);
+          final totalRounds =
+              gameState?.totalRounds ?? roundCountFromRoomData(roomData);
 
           if (status == roomStatusPlaying && hasGuest && gameState != null) {
             _moveToGameIfNeeded(gameState);
@@ -307,10 +373,10 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                         color: Colors.white,
                         borderRadius: BorderRadius.circular(24),
                       ),
-                      child: const Column(
+                      child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Text(
+                          const Text(
                             '이번 게임 규칙',
                             style: TextStyle(
                               fontSize: 17,
@@ -318,10 +384,10 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                               color: Color(0xFF2E2E3A),
                             ),
                           ),
-                          SizedBox(height: 12),
+                          const SizedBox(height: 12),
                           Text(
-                            'A가 먼저 5라운드 동안 수어를 표현하고,\nB가 정답을 맞혀 점수를 얻습니다.\n이후 B가 5라운드 동안 표현자로 바뀝니다.',
-                            style: TextStyle(
+                            'A가 먼저 $totalRounds라운드 동안 수어를 표현하고,\nB가 정답을 맞혀 점수를 얻습니다.\n이후 B가 $totalRounds라운드 동안 표현자로 바뀝니다.',
+                            style: const TextStyle(
                               fontSize: 14,
                               height: 1.5,
                               color: Color(0xFF77778A),
@@ -347,6 +413,7 @@ class _WaitingRoomScreenState extends State<WaitingRoomScreen> {
                         _startGame(
                           hostNickname: hostNickname,
                           guestNickname: guestNickname,
+                          totalRounds: totalRounds,
                         );
                       },
                     ),

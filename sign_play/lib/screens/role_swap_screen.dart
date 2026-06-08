@@ -9,6 +9,7 @@ class RoleSwapScreen extends StatefulWidget {
   final String secondPlayerName;
   final int firstPlayerScore;
   final int secondPlayerScore;
+  final int totalRounds;
   final String? roomCode;
 
   const RoleSwapScreen({
@@ -21,6 +22,7 @@ class RoleSwapScreen extends StatefulWidget {
     required this.secondPlayerName,
     required this.firstPlayerScore,
     required this.secondPlayerScore,
+    this.totalRounds = gameDefaultTotalRounds,
     this.roomCode,
   });
 
@@ -31,6 +33,52 @@ class RoleSwapScreen extends StatefulWidget {
 class _RoleSwapScreenState extends State<RoleSwapScreen> {
   bool hasMovedToTurnIntro = false;
   bool isOpeningNextTurn = false;
+
+  @override
+  void dispose() {
+    _abortSyncedGameIfNeeded();
+    super.dispose();
+  }
+
+  void _abortSyncedGameIfNeeded() {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || hasMovedToTurnIntro) {
+      return;
+    }
+
+    abortSyncedGame(
+      roomCode: roomCode,
+      leftPlayerName: _currentPlayerName(),
+    ).catchError((_) {});
+  }
+
+  String _currentPlayerName() {
+    return widget.nextPlayerIsSigner
+        ? widget.previousGuesserName
+        : widget.previousSignerName;
+  }
+
+  bool _moveToHomeIfOpponentExited(Map<String, dynamic>? roomData) {
+    if (roomData?['status'] != roomStatusAborted) {
+      return false;
+    }
+
+    if (hasMovedToTurnIntro) {
+      return true;
+    }
+
+    if (!wasRoomAbortedByOpponent(roomData, _currentPlayerName())) {
+      return false;
+    }
+
+    hasMovedToTurnIntro = true;
+    moveToHomeAfterOpponentExit(
+      context,
+      message: opponentExitMessage(roomData),
+    );
+    return true;
+  }
 
   void _moveToTurnIntroIfNeeded(GameState gameState) {
     if (hasMovedToTurnIntro) {
@@ -57,6 +105,7 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
             firstPlayerScore: gameState.firstPlayerScore,
             secondPlayerScore: gameState.secondPlayerScore,
             roomCode: widget.roomCode,
+            totalRounds: gameState.totalRounds,
             roundWords: gameState.roundWords,
           ),
         ),
@@ -101,6 +150,7 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
     final roundSeedBase =
         widget.roomCode ?? '${widget.firstPlayerName}-${widget.secondPlayerName}';
     final nextRoundWords = generateRoundWords(
+      count: widget.totalRounds,
       seed: '$roundSeedBase-${widget.attackTurn}',
     );
 
@@ -117,6 +167,7 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
           firstPlayerScore: widget.firstPlayerScore,
           secondPlayerScore: widget.secondPlayerScore,
           roomCode: widget.roomCode,
+          totalRounds: widget.totalRounds,
           roundWords: nextRoundWords,
         ),
       ),
@@ -131,12 +182,20 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: roomDocument(roomCode).snapshots(),
         builder: (context, snapshot) {
-          final gameState = gameStateFromRoomData(snapshot.data?.data());
+          final roomData = snapshot.data?.data();
+          final gameState = gameStateFromRoomData(roomData);
 
           if (snapshot.hasError) {
             return const Scaffold(
               backgroundColor: Color(0xFFF7F6FF),
               body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (_moveToHomeIfOpponentExited(roomData)) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
             );
           }
 
@@ -200,6 +259,7 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
         gameState?.firstPlayerScore ?? widget.firstPlayerScore;
     final secondPlayerScore =
         gameState?.secondPlayerScore ?? widget.secondPlayerScore;
+    final totalRounds = gameState?.totalRounds ?? widget.totalRounds;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
@@ -264,7 +324,7 @@ class _RoleSwapScreenState extends State<RoleSwapScreen> {
 
               Center(
                 child: Text(
-                  '첫 번째 5라운드가 끝났어요.\n이제 $nextSignerName님이 수어를 표현합니다.',
+                  '첫 번째 $totalRounds라운드가 끝났어요.\n이제 $nextSignerName님이 수어를 표현합니다.',
                   textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 15,

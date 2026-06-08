@@ -11,6 +11,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
   final TextEditingController roomNameController = TextEditingController();
   final TextEditingController nicknameController = TextEditingController();
   bool isCreatingRoom = false;
+  int selectedRoundCount = gameDefaultTotalRounds;
 
   @override
   void dispose() {
@@ -41,6 +42,7 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
         'roomName': roomName,
         'hostNickname': nickname,
         'playerB': '',
+        'totalRounds': selectedRoundCount,
         'status': 'waiting',
         'createdAt': FieldValue.serverTimestamp(),
       });
@@ -133,6 +135,95 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                 controller: nicknameController,
               ),
 
+              const SizedBox(height: 18),
+
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(24),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        const Icon(
+                          Icons.flag,
+                          color: Color(0xFF6C63FF),
+                          size: 24,
+                        ),
+                        const SizedBox(width: 10),
+                        const Expanded(
+                          child: Text(
+                            '라운드 수',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF2E2E3A),
+                            ),
+                          ),
+                        ),
+                        Text(
+                          '$selectedRoundCount라운드',
+                          style: const TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF6C63FF),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    Slider(
+                      min: gameMinTotalRounds.toDouble(),
+                      max: gameMaxTotalRounds.toDouble(),
+                      divisions: gameMaxTotalRounds - gameMinTotalRounds,
+                      value: selectedRoundCount.toDouble(),
+                      label: '$selectedRoundCount라운드',
+                      activeColor: const Color(0xFF6C63FF),
+                      inactiveColor: const Color(0xFFE3E0FF),
+                      onChanged: isCreatingRoom
+                          ? null
+                          : (value) {
+                              setState(() {
+                                selectedRoundCount = value.round();
+                              });
+                            },
+                    ),
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '2라운드',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF77778A),
+                          ),
+                        ),
+                        Text(
+                          '10라운드',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.bold,
+                            color: Color(0xFF77778A),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+
               const SizedBox(height: 28),
 
               Container(
@@ -149,10 +240,10 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                     ),
                   ],
                 ),
-                child: const Column(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
+                    const Text(
                       '게임 진행 방식',
                       style: TextStyle(
                         fontSize: 18,
@@ -161,21 +252,27 @@ class _CreateRoomScreenState extends State<CreateRoomScreen> {
                       ),
                     ),
 
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
 
-                    _RuleItem(number: '1', text: 'A가 먼저 5라운드 동안 수어를 표현해요.'),
+                    _RuleItem(
+                      number: '1',
+                      text: 'A가 먼저 $selectedRoundCount라운드 동안 수어를 표현해요.',
+                    ),
 
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                    _RuleItem(number: '2', text: 'B는 A의 영상을 보고 정답을 입력해요.'),
+                    const _RuleItem(number: '2', text: 'B는 A의 영상을 보고 정답을 입력해요.'),
 
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                    _RuleItem(number: '3', text: '5라운드가 끝나면 B가 표현자로 바뀌어요.'),
+                    _RuleItem(
+                      number: '3',
+                      text: '$selectedRoundCount라운드가 끝나면 B가 표현자로 바뀌어요.',
+                    ),
 
-                    SizedBox(height: 12),
+                    const SizedBox(height: 12),
 
-                    _RuleItem(number: '4', text: '정답을 많이 맞힌 플레이어가 승리해요.'),
+                    const _RuleItem(number: '4', text: '정답을 많이 맞힌 플레이어가 승리해요.'),
                   ],
                 ),
               ),

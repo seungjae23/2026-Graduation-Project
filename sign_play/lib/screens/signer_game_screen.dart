@@ -9,6 +9,7 @@ class SignerGameScreen extends StatefulWidget {
   final int firstPlayerScore;
   final int secondPlayerScore;
   final String? roomCode;
+  final int totalRounds;
   final List<String> roundWords;
 
   const SignerGameScreen({
@@ -21,6 +22,7 @@ class SignerGameScreen extends StatefulWidget {
     required this.firstPlayerScore,
     required this.secondPlayerScore,
     this.roomCode,
+    this.totalRounds = gameDefaultTotalRounds,
     required this.roundWords,
   });
 
@@ -55,7 +57,42 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
   @override
   void dispose() {
     roundTimer?.cancel();
+    _abortSyncedGameIfNeeded();
     super.dispose();
+  }
+
+  void _abortSyncedGameIfNeeded() {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || hasMovedFromGame) {
+      return;
+    }
+
+    abortSyncedGame(
+      roomCode: roomCode,
+      leftPlayerName: widget.playerName,
+    ).catchError((_) {});
+  }
+
+  bool _moveToHomeIfOpponentExited(Map<String, dynamic>? roomData) {
+    if (roomData?['status'] != roomStatusAborted) {
+      return false;
+    }
+
+    if (hasMovedFromGame) {
+      return true;
+    }
+
+    if (!wasRoomAbortedByOpponent(roomData, widget.playerName)) {
+      return false;
+    }
+
+    hasMovedFromGame = true;
+    moveToHomeAfterOpponentExit(
+      context,
+      message: opponentExitMessage(roomData),
+    );
+    return true;
   }
 
   void _startSyncedTicker() {
@@ -108,7 +145,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     isAdvancingRound = true;
     roundTimer?.cancel();
 
-    if (currentRound >= gameTotalRounds) {
+    if (currentRound >= widget.totalRounds) {
       if (widget.attackTurn >= 2) {
         Navigator.pushReplacement(
           context,
@@ -137,6 +174,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
             firstPlayerScore: widget.firstPlayerScore,
             secondPlayerScore: widget.secondPlayerScore,
             roomCode: widget.roomCode,
+            totalRounds: widget.totalRounds,
           ),
         ),
       );
@@ -182,6 +220,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
             firstPlayerScore: gameState.firstPlayerScore,
             secondPlayerScore: gameState.secondPlayerScore,
             roomCode: widget.roomCode,
+            totalRounds: gameState.totalRounds,
           ),
         ),
       );
@@ -282,12 +321,20 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: roomDocument(roomCode).snapshots(),
         builder: (context, snapshot) {
-          final gameState = gameStateFromRoomData(snapshot.data?.data());
+          final roomData = snapshot.data?.data();
+          final gameState = gameStateFromRoomData(roomData);
 
           if (snapshot.hasError) {
             return const Scaffold(
               backgroundColor: Color(0xFFF7F6FF),
               body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (_moveToHomeIfOpponentExited(roomData)) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
             );
           }
 
@@ -319,6 +366,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
             currentRound: gameState.currentRound,
             remainingSeconds: syncedRemainingSeconds,
             currentWord: gameState.currentWord,
+            totalRounds: gameState.totalRounds,
           );
         },
       );
@@ -328,6 +376,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
       currentRound: currentRound,
       remainingSeconds: remainingSeconds,
       currentWord: currentWord,
+      totalRounds: widget.totalRounds,
     );
   }
 
@@ -335,6 +384,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     required int currentRound,
     required int remainingSeconds,
     required String currentWord,
+    required int totalRounds,
   }) {
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
@@ -364,7 +414,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
                     Expanded(
                       child: _StatusBox(
                         title: '라운드',
-                        value: '$currentRound / $gameTotalRounds',
+                        value: '$currentRound / $totalRounds',
                         icon: Icons.flag,
                       ),
                     ),

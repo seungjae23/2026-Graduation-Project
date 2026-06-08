@@ -10,6 +10,7 @@ class TurnIntroScreen extends StatefulWidget {
   final int firstPlayerScore;
   final int secondPlayerScore;
   final String? roomCode;
+  final int? totalRounds;
   final List<String>? roundWords;
 
   const TurnIntroScreen({
@@ -23,6 +24,7 @@ class TurnIntroScreen extends StatefulWidget {
     this.firstPlayerScore = 0,
     this.secondPlayerScore = 0,
     this.roomCode,
+    this.totalRounds,
     this.roundWords,
   });
 
@@ -33,6 +35,57 @@ class TurnIntroScreen extends StatefulWidget {
 class _TurnIntroScreenState extends State<TurnIntroScreen> {
   bool hasMovedToGame = false;
   bool isStartingTurn = false;
+
+  @override
+  void dispose() {
+    _abortSyncedGameIfNeeded();
+    super.dispose();
+  }
+
+  void _abortSyncedGameIfNeeded() {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null || hasMovedToGame) {
+      return;
+    }
+
+    abortSyncedGame(
+      roomCode: roomCode,
+      leftPlayerName: _currentPlayerName(),
+    ).catchError((_) {});
+  }
+
+  String _currentPlayerName([GameState? gameState]) {
+    if (widget.isSigner) {
+      return gameState?.signerName ?? widget.attackerName;
+    }
+
+    return gameState?.guesserName ?? widget.guesserName;
+  }
+
+  bool _moveToHomeIfOpponentExited(
+    Map<String, dynamic>? roomData,
+    GameState? gameState,
+  ) {
+    if (roomData?['status'] != roomStatusAborted) {
+      return false;
+    }
+
+    if (hasMovedToGame) {
+      return true;
+    }
+
+    if (!wasRoomAbortedByOpponent(roomData, _currentPlayerName(gameState))) {
+      return false;
+    }
+
+    hasMovedToGame = true;
+    moveToHomeAfterOpponentExit(
+      context,
+      message: opponentExitMessage(roomData),
+    );
+    return true;
+  }
 
   void _moveToGameIfNeeded(GameState gameState) {
     if (hasMovedToGame) {
@@ -59,6 +112,7 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
                   firstPlayerScore: gameState.firstPlayerScore,
                   secondPlayerScore: gameState.secondPlayerScore,
                   roomCode: widget.roomCode,
+                  totalRounds: gameState.totalRounds,
                   roundWords: gameState.roundWords,
                 )
               : GuesserGameScreen(
@@ -70,6 +124,7 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
                   firstPlayerScore: gameState.firstPlayerScore,
                   secondPlayerScore: gameState.secondPlayerScore,
                   roomCode: widget.roomCode,
+                  totalRounds: gameState.totalRounds,
                   roundWords: gameState.roundWords,
                 ),
         ),
@@ -113,9 +168,14 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
     final gameSecondPlayerName = widget.secondPlayerName ?? widget.guesserName;
     final roundSeedBase =
         widget.roomCode ?? '$gameFirstPlayerName-$gameSecondPlayerName';
+    final totalRounds =
+        widget.totalRounds ?? roundCountFromWords(widget.roundWords);
     final gameRoundWords =
         widget.roundWords ??
-        generateRoundWords(seed: '$roundSeedBase-${widget.attackTurn}');
+        generateRoundWords(
+          count: totalRounds,
+          seed: '$roundSeedBase-${widget.attackTurn}',
+        );
 
     Navigator.push(
       context,
@@ -130,6 +190,7 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
                 firstPlayerScore: widget.firstPlayerScore,
                 secondPlayerScore: widget.secondPlayerScore,
                 roomCode: widget.roomCode,
+                totalRounds: totalRounds,
                 roundWords: gameRoundWords,
               )
             : GuesserGameScreen(
@@ -141,6 +202,7 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
                 firstPlayerScore: widget.firstPlayerScore,
                 secondPlayerScore: widget.secondPlayerScore,
                 roomCode: widget.roomCode,
+                totalRounds: totalRounds,
                 roundWords: gameRoundWords,
               ),
       ),
@@ -155,12 +217,20 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
       return StreamBuilder<DocumentSnapshot<Map<String, dynamic>>>(
         stream: roomDocument(roomCode).snapshots(),
         builder: (context, snapshot) {
-          final gameState = gameStateFromRoomData(snapshot.data?.data());
+          final roomData = snapshot.data?.data();
+          final gameState = gameStateFromRoomData(roomData);
 
           if (snapshot.hasError) {
             return const Scaffold(
               backgroundColor: Color(0xFFF7F6FF),
               body: Center(child: Text('게임 정보를 불러오지 못했습니다.')),
+            );
+          }
+
+          if (_moveToHomeIfOpponentExited(roomData, gameState)) {
+            return const Scaffold(
+              backgroundColor: Color(0xFFF7F6FF),
+              body: Center(child: CircularProgressIndicator()),
             );
           }
 
@@ -187,7 +257,11 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
     final attackerName = gameState?.signerName ?? widget.attackerName;
     final guesserName = gameState?.guesserName ?? widget.guesserName;
     final attackTurn = gameState?.attackTurn ?? widget.attackTurn;
-    final currentPlayerName = widget.isSigner ? attackerName : guesserName;
+    final totalRounds =
+        gameState?.totalRounds ??
+        widget.totalRounds ??
+        roundCountFromWords(widget.roundWords);
+    final currentPlayerName = _currentPlayerName(gameState);
     final currentRole = widget.isSigner ? '표현자' : '정답자';
     final canStartTurn =
         (gameState == null || gameState.phase == gamePhaseTurnIntro) &&
@@ -303,10 +377,10 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
                       value: '$attackTurn / 2',
                     ),
                     const SizedBox(height: 18),
-                    const _TurnInfoItem(
+                    _TurnInfoItem(
                       icon: Icons.flag,
                       title: '진행 라운드',
-                      value: '총 5라운드',
+                      value: '총 $totalRounds라운드',
                     ),
                   ],
                 ),
