@@ -31,6 +31,10 @@ class SignerGameScreen extends StatefulWidget {
 }
 
 class _SignerGameScreenState extends State<SignerGameScreen> {
+  final WebRTCService webRTCService = WebRTCService();
+  final RTCVideoRenderer localRenderer = RTCVideoRenderer();
+  bool isWebRTCReady = false;
+
   int currentRound = 1;
   int remainingSeconds = gameRoundSeconds;
   late String currentWord;
@@ -46,6 +50,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
   void initState() {
     super.initState();
     currentWord = _wordForRound(currentRound);
+    _startWebRTCIfNeeded();
 
     if (widget.roomCode == null) {
       _startLocalRoundTimer();
@@ -57,8 +62,40 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
   @override
   void dispose() {
     roundTimer?.cancel();
+    webRTCService.dispose();
+    localRenderer.dispose();
     _abortSyncedGameIfNeeded();
     super.dispose();
+  }
+
+  Future<void> _startWebRTCIfNeeded() async {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null) {
+      return;
+    }
+
+    try {
+      await localRenderer.initialize();
+      await webRTCService.startLocalStream(localRenderer);
+      await webRTCService.startSigner(roomCode);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isWebRTCReady = true;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isWebRTCReady = false;
+      });
+    }
   }
 
   void _abortSyncedGameIfNeeded() {
@@ -488,35 +525,62 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
 
                 const SizedBox(height: 24),
 
-                _CameraPreviewPanel(
-                  height: 280,
-                  overlay: Positioned(
-                    left: 18,
-                    top: 18,
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                        vertical: 9,
-                        horizontal: 12,
-                      ),
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(0.42),
-                        borderRadius: BorderRadius.circular(14),
-                      ),
-                      child: const Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(Icons.videocam, color: Colors.white, size: 18),
-                          SizedBox(width: 8),
-                          Text(
-                            '촬영 중',
-                            style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 13,
-                              fontWeight: FontWeight.bold,
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(28),
+                  child: Container(
+                    width: double.infinity,
+                    height: 280,
+                    color: const Color(0xFF2E2E3A),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        if (isWebRTCReady)
+                          RTCVideoView(
+                            localRenderer,
+                            mirror: true,
+                            objectFit: RTCVideoViewObjectFit
+                                .RTCVideoViewObjectFitCover,
+                          )
+                        else
+                          const _CameraPreviewMessage(
+                            icon: Icons.camera_alt,
+                            title: '카메라 준비 중',
+                            description: 'WebRTC 카메라 연결을 준비하고 있어요.',
+                          ),
+                        Positioned(
+                          left: 18,
+                          top: 18,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              vertical: 9,
+                              horizontal: 12,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.42),
+                              borderRadius: BorderRadius.circular(14),
+                            ),
+                            child: const Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Icon(
+                                  Icons.videocam,
+                                  color: Colors.white,
+                                  size: 18,
+                                ),
+                                SizedBox(width: 8),
+                                Text(
+                                  '촬영 중',
+                                  style: TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
                   ),
                 ),

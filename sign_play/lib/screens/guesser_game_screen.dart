@@ -34,6 +34,10 @@ class GuesserGameScreen extends StatefulWidget {
 
 class _GuesserGameScreenState extends State<GuesserGameScreen> {
   final TextEditingController answerController = TextEditingController();
+  final WebRTCService webRTCService = WebRTCService();
+  final RTCVideoRenderer remoteRenderer = RTCVideoRenderer();
+  bool isWebRTCReady = false;
+
   int currentRound = 1;
   int remainingSeconds = gameRoundSeconds;
   late int score;
@@ -50,6 +54,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
     score = widget.guesserName == widget.firstPlayerName
         ? widget.firstPlayerScore
         : widget.secondPlayerScore;
+    _startWebRTCIfNeeded();
 
     if (widget.roomCode == null) {
       _startLocalRoundTimer();
@@ -62,8 +67,39 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
   void dispose() {
     roundTimer?.cancel();
     answerController.dispose();
+    webRTCService.dispose();
+    remoteRenderer.dispose();
     _abortSyncedGameIfNeeded();
     super.dispose();
+  }
+
+  Future<void> _startWebRTCIfNeeded() async {
+    final roomCode = widget.roomCode;
+
+    if (roomCode == null) {
+      return;
+    }
+
+    try {
+      await remoteRenderer.initialize();
+      await webRTCService.startGuesser(roomCode, remoteRenderer);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isWebRTCReady = true;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        isWebRTCReady = false;
+      });
+    }
   }
 
   void _abortSyncedGameIfNeeded() {
@@ -605,44 +641,23 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
 
                   const SizedBox(height: 24),
 
-                  Container(
-                    width: double.infinity,
-                    height: 300,
-                    decoration: BoxDecoration(
+                  ClipRRect(
+                    borderRadius: BorderRadius.circular(28),
+                    child: Container(
+                      width: double.infinity,
+                      height: 300,
                       color: const Color(0xFF2E2E3A),
-                      borderRadius: BorderRadius.circular(28),
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Container(
-                          width: 76,
-                          height: 76,
-                          decoration: BoxDecoration(
-                            color: Colors.white.withOpacity(0.12),
-                            borderRadius: BorderRadius.circular(24),
-                          ),
-                          child: const Icon(
-                            Icons.live_tv,
-                            color: Colors.white,
-                            size: 40,
-                          ),
-                        ),
-                        const SizedBox(height: 16),
-                        const Text(
-                          '상대방 실시간 영상 영역',
-                          style: TextStyle(
-                            fontSize: 17,
-                            fontWeight: FontWeight.bold,
-                            color: Colors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        const Text(
-                          '나중에 WebRTC 영상 뷰어가 들어갈 자리',
-                          style: TextStyle(fontSize: 13, color: Colors.white70),
-                        ),
-                      ],
+                      child: isWebRTCReady
+                          ? RTCVideoView(
+                              remoteRenderer,
+                              objectFit: RTCVideoViewObjectFit
+                                  .RTCVideoViewObjectFitCover,
+                            )
+                          : const _CameraPreviewMessage(
+                              icon: Icons.live_tv,
+                              title: '영상 연결 대기 중',
+                              description: '상대방의 실시간 영상을 연결하고 있어요.',
+                            ),
                     ),
                   ),
 
