@@ -28,6 +28,8 @@ class GameState {
   final int firstPlayerScore;
   final int secondPlayerScore;
   final int totalRounds;
+  final bool signerReady;
+  final bool guesserReady;
   final List<String> roundWords;
   final Timestamp? roundStartedAt;
   final bool? lastAnswerCorrect;
@@ -45,6 +47,8 @@ class GameState {
     required this.firstPlayerScore,
     required this.secondPlayerScore,
     required this.totalRounds,
+    required this.signerReady,
+    required this.guesserReady,
     required this.roundWords,
     required this.roundStartedAt,
     required this.lastAnswerCorrect,
@@ -136,6 +140,8 @@ GameState? gameStateFromRoomData(Map<String, dynamic>? roomData) {
     firstPlayerScore: gameData['firstPlayerScore'] as int? ?? 0,
     secondPlayerScore: gameData['secondPlayerScore'] as int? ?? 0,
     totalRounds: totalRounds,
+    signerReady: gameData['signerReady'] as bool? ?? false,
+    guesserReady: gameData['guesserReady'] as bool? ?? false,
     roundWords: roundWords,
     roundStartedAt: gameData['roundStartedAt'] as Timestamp?,
     lastAnswerCorrect: lastAnswer?['isCorrect'] as bool?,
@@ -211,6 +217,8 @@ Map<String, dynamic> initialGameStateData({
     'firstPlayerScore': 0,
     'secondPlayerScore': 0,
     'totalRounds': normalizedTotalRounds,
+    'signerReady': false,
+    'guesserReady': false,
     'roundWords': generateRoundWords(
       count: normalizedTotalRounds,
       seed: '$roomCode-1',
@@ -241,17 +249,54 @@ Future<void> startSyncedGame({
   });
 }
 
-Future<void> startSyncedTurn(String roomCode) {
-  return roomDocument(roomCode).update({
-    'game.phase': gamePhasePlaying,
-    'game.roundStartedAt': FieldValue.serverTimestamp(),
-    'game.updatedAt': FieldValue.serverTimestamp(),
+Future<void> setSyncedTurnReady({
+  required String roomCode,
+  required bool isSigner,
+  required bool isReady,
+}) {
+  final roomRef = roomDocument(roomCode);
+
+  return FirebaseFirestore.instance.runTransaction<void>((transaction) async {
+    final snapshot = await transaction.get(roomRef);
+    final roomData = snapshot.data();
+    final gameData = roomData?['game'];
+
+    if (roomData == null ||
+        roomData['status'] != roomStatusPlaying ||
+        gameData is! Map<String, dynamic> ||
+        gameData['phase'] != gamePhaseTurnIntro) {
+      return;
+    }
+
+    final signerReady = isSigner
+        ? isReady
+        : (gameData['signerReady'] as bool? ?? false);
+    final guesserReady = isSigner
+        ? (gameData['guesserReady'] as bool? ?? false)
+        : isReady;
+
+    final update = <String, dynamic>{
+      'game.signerReady': signerReady,
+      'game.guesserReady': guesserReady,
+      'game.updatedAt': FieldValue.serverTimestamp(),
+    };
+
+    if (signerReady && guesserReady) {
+      update.addAll({
+        'game.phase': gamePhasePlaying,
+        'game.roundStartedAt': FieldValue.serverTimestamp(),
+      });
+    }
+
+    transaction.update(roomRef, update);
   });
 }
 
 Future<void> openSyncedTurnIntro(String roomCode) {
   return roomDocument(roomCode).update({
     'game.phase': gamePhaseTurnIntro,
+    'game.signerReady': false,
+    'game.guesserReady': false,
     'game.roundStartedAt': null,
     'game.updatedAt': FieldValue.serverTimestamp(),
   });
@@ -377,6 +422,8 @@ Future<bool> completeSyncedRound({
           'game.signerName': gameState.secondPlayerName,
           'game.guesserName': gameState.firstPlayerName,
           'game.totalRounds': gameState.totalRounds,
+          'game.signerReady': false,
+          'game.guesserReady': false,
           'game.roundWords': generateRoundWords(
             count: gameState.totalRounds,
             seed: '$roomCode-$nextAttackTurn',

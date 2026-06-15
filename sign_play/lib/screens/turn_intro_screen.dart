@@ -132,7 +132,7 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
     });
   }
 
-  Future<void> _startTurn() async {
+  Future<void> _toggleReady(bool nextReady) async {
     final roomCode = widget.roomCode;
 
     if (roomCode == null) {
@@ -145,14 +145,18 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
     });
 
     try {
-      await startSyncedTurn(roomCode);
+      await setSyncedTurnReady(
+        roomCode: roomCode,
+        isSigner: widget.isSigner,
+        isReady: nextReady,
+      );
     } catch (error) {
       if (!mounted) {
         return;
       }
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('턴 시작에 실패했습니다: $error')),
+        SnackBar(content: Text('준비 상태 업데이트에 실패했습니다: $error')),
       );
     } finally {
       if (mounted) {
@@ -263,7 +267,17 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
         roundCountFromWords(widget.roundWords);
     final currentPlayerName = _currentPlayerName(gameState);
     final currentRole = widget.isSigner ? '표현자' : '정답자';
-    final canStartTurn =
+    final currentPlayerReady = widget.isSigner
+        ? (gameState?.signerReady ?? false)
+        : (gameState?.guesserReady ?? false);
+    final opponentReady = widget.isSigner
+        ? (gameState?.guesserReady ?? false)
+        : (gameState?.signerReady ?? false);
+    final opponentRole = widget.isSigner ? '정답자' : '표현자';
+    final readyButtonText = currentPlayerReady
+        ? '준비 취소'
+        : (widget.isSigner ? '표현자 준비' : '정답자 준비');
+    final canMarkReady =
         (gameState == null || gameState.phase == gamePhaseTurnIntro) &&
         !isStartingTurn;
 
@@ -346,6 +360,43 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
 
               Container(
                 width: double.infinity,
+                padding: const EdgeInsets.all(20),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(26),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.06),
+                      blurRadius: 14,
+                      offset: const Offset(0, 6),
+                    ),
+                  ],
+                ),
+                child: Column(
+                  children: [
+                    _ReadyStatusItem(
+                      icon: widget.isSigner ? Icons.sign_language : Icons.edit,
+                      title: '내 준비 상태',
+                      value: currentPlayerReady ? '준비 완료' : '준비 대기 중',
+                      isReady: currentPlayerReady,
+                    ),
+                    const SizedBox(height: 14),
+                    _ReadyStatusItem(
+                      icon: widget.isSigner ? Icons.edit : Icons.sign_language,
+                      title: '상대방 준비 상태',
+                      value: opponentReady
+                          ? '$opponentRole 준비 완료'
+                          : '$opponentRole 준비 대기 중',
+                      isReady: opponentReady,
+                    ),
+                  ],
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Container(
+                width: double.infinity,
                 padding: const EdgeInsets.all(22),
                 decoration: BoxDecoration(
                   color: Colors.white,
@@ -390,17 +441,17 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
 
               if (widget.isSigner)
                 _PrimaryButton(
-                  text: isStartingTurn ? '턴 시작 중...' : '표현자 화면 시작',
+                  text: isStartingTurn ? '준비 중...' : readyButtonText,
                   icon: Icons.sign_language,
-                  enabled: canStartTurn,
-                  onTap: _startTurn,
+                  enabled: canMarkReady,
+                  onTap: () => _toggleReady(!currentPlayerReady),
                 )
               else
                 _PrimaryButton(
-                  text: isStartingTurn ? '턴 시작 중...' : '정답자 화면 시작',
+                  text: isStartingTurn ? '준비 중...' : readyButtonText,
                   icon: Icons.edit,
-                  enabled: canStartTurn,
-                  onTap: _startTurn,
+                  enabled: canMarkReady,
+                  onTap: () => _toggleReady(!currentPlayerReady),
                 ),
 
               const SizedBox(height: 18),
@@ -408,6 +459,71 @@ class _TurnIntroScreenState extends State<TurnIntroScreen> {
           ),
         ),
       ),
+    );
+  }
+}
+
+class _ReadyStatusItem extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String value;
+  final bool isReady;
+
+  const _ReadyStatusItem({
+    required this.icon,
+    required this.title,
+    required this.value,
+    required this.isReady,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final color = isReady
+        ? const Color(0xFF1CA56F)
+        : const Color(0xFFE09A2B);
+
+    return Row(
+      children: [
+        Container(
+          width: 44,
+          height: 44,
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(icon, color: color, size: 24),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF77778A),
+                ),
+              ),
+              const SizedBox(height: 3),
+              Text(
+                value,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2E2E3A),
+                ),
+              ),
+            ],
+          ),
+        ),
+        Icon(
+          isReady ? Icons.check_circle : Icons.hourglass_top,
+          color: color,
+          size: 24,
+        ),
+      ],
     );
   }
 }
