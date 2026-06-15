@@ -140,23 +140,6 @@ class HomeScreen extends StatelessWidget {
                 },
               ),
 
-              const SizedBox(height: 14),
-
-              _MainButton(
-                text: '카메라 테스트',
-                icon: Icons.camera_alt,
-                backgroundColor: Colors.white,
-                textColor: Color(0xFF2E2E3A),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const CameraTestScreen(),
-                    ),
-                  );
-                },
-              ),
-
               const SizedBox(height: 18),
             ],
           ),
