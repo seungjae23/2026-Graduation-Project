@@ -1,0 +1,49 @@
+name: sign_play
+description: 실시간 수어 제스처 게임 앱
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  cupertino_icons: ^1.0.8
+
+  # Firebase (데이터베이스 및 코어)
+  firebase_core: ^2.24.2
+  cloud_firestore: ^4.14.0
+
+  # WebRTC (실시간 영상 통신)
+  flutter_webrtc: ^1.5.1
+
+  # 카메라 및 미디어 플레이어
+  camera: ^0.10.5+9
+  video_player: ^2.8.2
+
+  # 파일 시스템 경로 (영상 저장용)
+  path_provider: ^2.1.2
+
+  # AI 연동 (TFLite)
+  tflite_flutter: ^0.12.1
+
+  # 유틸리티 (배열/리스트 처리)
+  collection: ^1.18.0
+  google_mlkit_pose_detection: ^0.14.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.0
+
+flutter:
+  uses-material-design: true
+
+  # AI 모델, 라벨, 단어장 등의 에셋 경로
+  assets:
+    - assets/data/
+    - assets/models/
