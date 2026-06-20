@@ -323,7 +323,7 @@ class _GuesserGameScreenState extends State<GuesserGameScreen> {
   }
 
   String _normalizeAnswer(String value) {
-    return value.replaceAll(RegExp(r'\s+'), '').toLowerCase();
+    return normalizeKslText(value);
   }
 
   Future<void> _showAnswerResultEffect(bool isCorrect) async {

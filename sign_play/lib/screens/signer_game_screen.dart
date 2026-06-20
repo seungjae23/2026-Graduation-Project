@@ -32,8 +32,13 @@ class SignerGameScreen extends StatefulWidget {
 
 class _SignerGameScreenState extends State<SignerGameScreen> {
   final WebRTCService webRTCService = WebRTCService();
+  final SignEvaluationService signEvaluationService = SignEvaluationService();
   final RTCVideoRenderer localRenderer = RTCVideoRenderer();
   bool isWebRTCReady = false;
+  bool isModelChecking = true;
+  bool isModelReady = false;
+  String? modelCategory;
+  String? modelStatusWord;
 
   int currentRound = 1;
   int remainingSeconds = gameRoundSeconds;
@@ -51,6 +56,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     super.initState();
     currentWord = _wordForRound(currentRound);
     _startWebRTCIfNeeded();
+    _checkModelForWord(currentWord);
 
     if (widget.roomCode == null) {
       _startLocalRoundTimer();
@@ -63,9 +69,31 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
   void dispose() {
     roundTimer?.cancel();
     webRTCService.dispose();
+    unawaited(signEvaluationService.dispose());
     localRenderer.dispose();
     _abortSyncedGameIfNeeded();
     super.dispose();
+  }
+
+  Future<void> _checkModelForWord(String word) async {
+    setState(() {
+      isModelChecking = true;
+      isModelReady = false;
+      modelCategory = null;
+      modelStatusWord = word;
+    });
+
+    final category = await signEvaluationService.categoryForWord(word);
+
+    if (!mounted || modelStatusWord != word) {
+      return;
+    }
+
+    setState(() {
+      isModelChecking = false;
+      isModelReady = category != null;
+      modelCategory = category;
+    });
   }
 
   Future<void> _startWebRTCIfNeeded() async {
@@ -224,6 +252,7 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
       remainingSeconds = gameRoundSeconds;
       isAdvancingRound = false;
     });
+    _checkModelForWord(currentWord);
 
     _startLocalRoundTimer();
 
@@ -423,6 +452,29 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
     required String currentWord,
     required int totalRounds,
   }) {
+    if (modelStatusWord != currentWord) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _checkModelForWord(currentWord);
+        }
+      });
+    }
+
+    final modelStatusTitle = isModelChecking
+        ? '모델 확인 중'
+        : (isModelReady ? '모델 준비 완료' : '지원 모델 없음');
+    final modelStatusDescription = isModelChecking
+        ? '현재 제시어에 맞는 모델을 찾고 있어요.'
+        : (isModelReady
+              ? '$modelCategory 모델로 판정할 수 있어요.'
+              : '이 제시어는 현재 모델 라벨에 없습니다.');
+    final modelStatusIcon = isModelReady
+        ? Icons.check_circle
+        : (isModelChecking ? Icons.sync : Icons.error_outline);
+    final modelStatusColor = isModelReady
+        ? const Color(0xFF1CA56F)
+        : (isModelChecking ? const Color(0xFF6C63FF) : const Color(0xFFE25B5B));
+
     return Scaffold(
       backgroundColor: const Color(0xFFF7F6FF),
       appBar: AppBar(
@@ -594,26 +646,26 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(24),
                   ),
-                  child: const Row(
+                  child: Row(
                     children: [
-                      Icon(Icons.back_hand, color: Color(0xFF6C63FF), size: 28),
-                      SizedBox(width: 14),
+                      Icon(modelStatusIcon, color: modelStatusColor, size: 28),
+                      const SizedBox(width: 14),
                       Expanded(
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              '손 인식 상태',
+                              modelStatusTitle,
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
                                 color: Color(0xFF2E2E3A),
                               ),
                             ),
-                            SizedBox(height: 4),
+                            const SizedBox(height: 4),
                             Text(
-                              'MediaPipe 연결 전입니다',
-                              style: TextStyle(
+                              modelStatusDescription,
+                              style: const TextStyle(
                                 fontSize: 13,
                                 color: Color(0xFF77778A),
                               ),
@@ -646,11 +698,11 @@ class _SignerGameScreenState extends State<SignerGameScreen> {
                         ),
                       ),
                       SizedBox(height: 14),
-                      _GuideText(text: '손이 화면 중앙에 오도록 해주세요.'),
+                      _GuideText(text: '현재 제시어는 모델 라벨 기준으로 출제됩니다.'),
                       SizedBox(height: 8),
-                      _GuideText(text: '밝은 곳에서 촬영해주세요.'),
+                      _GuideText(text: '손이 화면 중앙에 오도록 밝은 곳에서 촬영해주세요.'),
                       SizedBox(height: 8),
-                      _GuideText(text: '제시어에 맞는 수어를 천천히 표현해주세요.'),
+                      _GuideText(text: 'MediaPipe 프레임 연결 후 자동 판정이 가능합니다.'),
                     ],
                   ),
                 ),

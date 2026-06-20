@@ -1,12 +1,14 @@
 library sign_play;
 
 import 'dart:async';
+import 'dart:convert';
 import 'dart:math';
 import 'package:camera/camera.dart';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:tflite_flutter/tflite_flutter.dart';
 import 'package:flutter_webrtc/flutter_webrtc.dart';
 import 'firebase_options.dart';
 import 'services/webrtc_service.dart';
@@ -28,6 +30,7 @@ part 'widgets/turn_info_item.dart';
 part 'widgets/status_box.dart';
 part 'widgets/guide_text.dart';
 part 'widgets/camera_preview_panel.dart';
+part 'services/sign_evaluation_service.dart';
 part 'utils/game_state.dart';
 part 'utils/room_code.dart';
 part 'utils/words.dart';
